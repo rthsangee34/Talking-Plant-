@@ -99,8 +99,11 @@ export const ChatWithPlantCard: React.FC = () => {
       // Voice Mode audio playback with female voice
       if (isVoiceMode && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
+        const isTamil =
+          /[\u0B80-\u0BFF]/.test(resp.reply) ||
+          /[\u0B80-\u0BFF]/.test(message) ||
+          /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|thanni|panra|inniku|romba|tamil)\b/i.test(message);
         const utterance = new SpeechSynthesisUtterance(resp.reply);
-        const isTamil = /[\u0B80-\u0BFF]/.test(resp.reply) || resp.reply.toLowerCase().includes('vanakkam');
         utterance.lang = isTamil ? 'ta-IN' : 'en-US';
         utterance.pitch = 1.2;
         utterance.rate = 1.0;

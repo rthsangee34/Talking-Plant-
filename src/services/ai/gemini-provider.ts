@@ -166,7 +166,14 @@ export class GeminiProvider implements AIProvider {
 
     const keyToUse = apiKey || import.meta.env.VITE_GEMINI_API_KEY || '';
     if (!keyToUse) {
-      throw new Error('Please configure your Gemini API key to chat with Plant Talk.');
+      const isTamil =
+        /[\u0B80-\u0BFF]/.test(message) ||
+        /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|thanni|panra|inniku|romba|tamil)\b/i.test(message);
+      return {
+        reply: isTamil
+          ? `வணக்கம்! நான் உங்கள் செடி. என் இலைகள் நன்றாக இருக்கின்றன, மண் ஈரப்பதம் ${context.soilMoisture}% ஆக உள்ளது! 🌱`
+          : `Hello! I'm your plant. My leaves are doing great and my soil moisture is at ${context.soilMoisture}%! 🌱`,
+      };
     }
 
     return this.chatDirectly(message, keyToUse, context, history);
@@ -180,9 +187,8 @@ export class GeminiProvider implements AIProvider {
   ): Promise<{ reply: string }> {
     const isTamil =
       /[\u0B80-\u0BFF]/.test(message) ||
-      message.toLowerCase().includes('vanakkam') ||
-      message.toLowerCase().includes('nandri') ||
-      /\b(epdi|eppadi|irukka|irukku|thanni|thanniya|panra|inniku|enakku|ungalluku|romba|konjam|adade|nalla|seydi|ilai)\b/i.test(message);
+      /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|irukanga|thanni|thanniya|thannir|panra|pandringa|inniku|iniku|enakku|ungalluku|ungalukku|romba|konjam|adade|nalla|seydi|sedhi|ilai|ilaigal|chedi|tamil|tamil-la|tamil-le|tamilil|pesu|pesunga|solla|sollunga|theriyuma|teriyuma|kuduthacha|venuma|pandra|vanga|ponga)\b/i.test(message) ||
+      /\b(speak in tamil|in tamil|talk in tamil|reply in tamil|tamil please)\b/i.test(message);
 
     const prompt = `You are a friendly, caring, witty talking plant companion named Plant Talk.
 Current environmental sensors:
@@ -190,13 +196,19 @@ Current environmental sensors:
 - Temperature: ${context.temperature}°C
 - Humidity: ${context.humidity}%
 - Light: ${context.lightIntensity}%
-${isTamil ? 'The user is speaking in Tamil or Tanglish. Respond directly in fluent, natural conversational Tamil (இயல்பான பேச்சுத் தமிழ் - Sri Lankan Jaffna/Colombo or colloquial Tamil) in 1-2 short sentences without translating through English or appending English translations in parentheses.' : 'Respond affectionately to the plant parent in 1-2 sentences with plant personality.'}`;
+
+STRICT LANGUAGE RULE (SINGLE LANGUAGE ONLY - NEVER USE MIXED LANGUAGES):
+${
+  isTamil
+    ? 'The user is communicating in Tamil. You MUST respond 100% in natural, fluent spoken Tamil (இயல்பான பேச்சுத் தமிழ்). Do NOT mix English words into your response. Do NOT use Tanglish. Do NOT provide English translations in parentheses. Speak in 1-2 short, warm sentences as the living potted plant.'
+    : 'The user is communicating in English. You MUST respond 100% in natural, fluent English. Do NOT mix Tamil words into your response. Speak in 1-2 short, warm sentences with cheerful plant personality.'
+}`;
 
     const candidateModels = [
-      'gemini-flash-lite-latest',
-      'gemini-3.5-flash-lite',
       'gemini-3.6-flash',
       'gemini-flash-latest',
+      'gemini-3.5-flash-lite',
+      'gemini-flash-lite-latest',
     ];
 
     for (const model of candidateModels) {

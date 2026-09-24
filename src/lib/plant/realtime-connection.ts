@@ -14,12 +14,12 @@ export interface LiveConnectionCallbacks {
   onToolCall?: (toolName: string, args: Record<string, unknown>, result: Record<string, unknown>) => void;
 }
 
-export function detectSpokenLanguage(text: string): 'ta' | 'en' | 'mixed' {
+export function detectSpokenLanguage(text: string): 'ta' | 'en' {
   if (!text) return 'en';
   if (/[\u0B80-\u0BFF]/.test(text)) return 'ta';
 
-  const tanglishKeywords = /\b(inniku|iniku|eppadi|epdi|irukku|irukanga|irukka|enna|panra|pandringa|thanni|thannir|tannir|kuduthacha|venuma|indha|inda|vanakkam|chedi|ilai|ilaigal|romba|konjam|adade|apdiya|solla|sollunga|teriyuma|pandra|vanga|ponga|tamil|tamil-la|tamil-le|tamilil)\b/i;
-  if (tanglishKeywords.test(text)) return 'mixed';
+  const tanglishKeywords = /\b(inniku|iniku|eppadi|epdi|irukku|irukanga|irukka|enna|panra|pandringa|thanni|thannir|tannir|kuduthacha|venuma|indha|inda|vanakkam|chedi|ilai|ilaigal|romba|konjam|adade|apdiya|solla|sollunga|teriyuma|theriyuma|pandra|vanga|ponga|tamil|tamil-la|tamil-le|tamilil)\b/i;
+  if (tanglishKeywords.test(text)) return 'ta';
 
   return 'en';
 }

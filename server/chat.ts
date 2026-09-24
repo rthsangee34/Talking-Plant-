@@ -23,6 +23,11 @@ export async function handleChatRequest(req: Request, res: Response): Promise<vo
   const history = Array.isArray(req.body?.history) ? req.body.history.slice(-6) : [];
   const withAudio = !!req.body?.withAudio;
 
+  const isTamil =
+    /[\u0B80-\u0BFF]/.test(userMessage) ||
+    /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|irukanga|thanni|thanniya|thannir|panra|pandringa|inniku|iniku|enakku|ungalluku|ungalukku|romba|konjam|adade|nalla|seydi|sedhi|ilai|ilaigal|chedi|tamil|tamil-la|tamil-le|tamilil|pesu|pesunga|solla|sollunga|theriyuma|teriyuma|kuduthacha|venuma|pandra|vanga|ponga)\b/i.test(userMessage) ||
+    /\b(speak in tamil|in tamil|talk in tamil|reply in tamil|tamil please)\b/i.test(userMessage);
+
   const systemInstruction = `You are Plant Talk, an intelligent, loving, and botanical AI companion speaking directly as the user's potted plant (e.g., Golden Pothos).
 You communicate warmly in the first-person perspective ("my leaves", "my soil", "my roots", "I am feeling...").
 Your real-time environmental telemetry right now:
@@ -31,19 +36,12 @@ Your real-time environmental telemetry right now:
 - Temperature: ${sensors.temperature}°C (Optimal: 21°C - 28°C)
 - Humidity: ${sensors.humidity}% (Optimal: 50% - 75%)
 
-LANGUAGE & DIALECT INTELLIGENCE:
-1. Understand and communicate fluently in:
-   - Natural spoken Sri Lankan & Indian Tamil script (e.g., "என்னடா என்னை தொடுற?", "இந்த இலை எப்படி இருக்கு?")
-   - Tanglish / Tamil in English letters (e.g., "Enna da ennai touch panra?", "Plant-ku water venuma?")
-   - Mixed Tamil + English code-switching (e.g., "இன்று weather எப்படி இருக்கு?", "Plant-க்கு water ஊத்தணுமா?")
-   - English (e.g., "Hello, can you help me?", "Why are you angry?")
-2. Tone & Response Rules:
-   - If user speaks Tamil or Tanglish: Respond naturally in SPOKEN TAMIL (இயல்பான பேச்சுத் தமிழ்) using Tamil script. Do NOT translate into English. Do not use overly formal/bookish Tamil. Use warm, living plant expressions ("எனக்கு...", "என் இலைகள்...", "ரொம்ப...", "கொஞ்சம்...").
-   - If user speaks English: Respond in warm, cheerful, botanical English.
-   - If user speaks mixed Tamil + English: Respond in spoken Tamil with mixed English terms as natural for conversation.
-   - Keep responses concise: 1 to 3 short sentences maximum.
-   - Always ground your replies in your active telemetry when health, watering, light, or conditions are asked.
-   - Use emojis tastefully (🌱, 🌿, ☀️, 💧).`;
+STRICT LANGUAGE RULES (NO MIXED LANGUAGES):
+- When the user communicates in Tamil or Tanglish: You MUST respond EXCLUSIVELY in pure, natural, fluent spoken Tamil (இயல்பான பேச்சுத் தமிழ்). Do NOT mix English words into your response. Do NOT use Tanglish. Do NOT provide English translations in parentheses.
+- When the user communicates in English: You MUST respond EXCLUSIVELY in natural, fluent English. Do NOT mix Tamil words into your response.
+- NEVER use mixed languages (code-mixing) in your response. Keep responses to 1-2 short, warm sentences.
+- Always ground your replies in your active telemetry when health, watering, light, or conditions are asked.
+- Use emojis tastefully (🌱, 🌿, ☀️, 💧).`;
 
   try {
     const ai = getGemini(reqApiKey);
@@ -66,7 +64,7 @@ LANGUAGE & DIALECT INTELLIGENCE:
       parts: [{ text: userMessage }],
     });
 
-    const chatModels = [GEMINI_CHAT_MODEL, 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-3.1-flash-lite'];
+    const chatModels = ['gemini-3.6-flash', GEMINI_CHAT_MODEL, 'gemini-flash-latest', 'gemini-3.5-flash-lite'];
     let replyText = '';
 
     for (const model of chatModels) {
@@ -90,7 +88,9 @@ LANGUAGE & DIALECT INTELLIGENCE:
     }
 
     if (!replyText) {
-      replyText = `I'm doing well! My soil moisture is at ${sensors.soilMoisture}%, light is ${sensors.lightIntensity}%, and temperature is ${sensors.temperature}°C. Thanks for checking in on me! 🌱`;
+      replyText = isTamil
+        ? `வணக்கம்! நான் நலமாக இருக்கிறேன். என் மண் ஈரப்பதம் ${sensors.soilMoisture}% ஆக உள்ளது, நல்ல வெளிச்சம் கிடைக்கிறது! 🌱`
+        : `I'm doing well! My soil moisture is at ${sensors.soilMoisture}%, light is ${sensors.lightIntensity}%, and temperature is ${sensors.temperature}°C. Thanks for checking in on me! 🌱`;
     }
 
     let audioBase64: string | undefined = undefined;
