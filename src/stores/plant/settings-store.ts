@@ -171,18 +171,10 @@ export const useSettingsStore = create<SettingsState>()(
         });
 
         try {
-          const res = await fetch('/api/validate-key', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Gemini-API-Key': key,
-            },
-            body: JSON.stringify({ apiKey: key }),
-          });
+          const { defaultAIProvider } = await import('../../services/ai/gemini-provider');
+          const validation = await defaultAIProvider.validateKey(key);
 
-          const data = await res.json().catch(() => ({}));
-
-          if (res.ok && data.valid) {
+          if (validation.valid) {
             get().setApiKey(key);
             set({
               apiStatus: 'AI_READY',
@@ -191,20 +183,20 @@ export const useSettingsStore = create<SettingsState>()(
             });
             return {
               success: true,
-              message: data.message || 'Gemini AI connected successfully.',
+              message: validation.message || 'Gemini AI connected successfully.',
             };
           }
 
-          let errorStatus: ApiKeyStatus = 'INVALID_KEY';
-          let userMessage = 'The API key could not be validated. Please check the key and try again.';
+          const errorStatus: ApiKeyStatus =
+            validation.errorType === 'RATE_LIMITED'
+              ? 'RATE_LIMITED'
+              : validation.errorType === 'NETWORK_ERROR'
+              ? 'AI_OFFLINE'
+              : 'INVALID_KEY';
 
-          if (res.status === 429 || data.error === 'RATE_LIMITED') {
-            errorStatus = 'RATE_LIMITED';
-            userMessage = 'The AI service has reached its usage limit. Please check your API account.';
-          } else if (res.status === 503 || data.error === 'NETWORK_ERROR') {
-            errorStatus = 'AI_OFFLINE';
-            userMessage = 'Unable to connect to the AI service. Check your internet connection and try again.';
-          }
+          const userMessage =
+            validation.message ||
+            'The API key could not be validated. Please check the key and try again.';
 
           set({
             apiStatus: errorStatus,

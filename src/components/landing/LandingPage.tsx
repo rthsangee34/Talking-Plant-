@@ -17,11 +17,15 @@ import { AuthModal } from './AuthModal';
 import { User, onAuthStateChanged, auth } from '../../services/firebase/firebase';
 import { useExperienceStore } from '../../stores/plant/experience-store';
 
+import { setAppInstalled } from '../../lib/install-manager';
+import { navigateTo } from '../../lib/router';
+
 interface LandingPageProps {
   onSuccess: () => void;
+  onInstall?: () => void;
 }
 
-export const LandingPage: React.FC<LandingPageProps> = ({ onSuccess }) => {
+export const LandingPage: React.FC<LandingPageProps> = ({ onSuccess, onInstall }) => {
   const shouldReduceMotion = useReducedMotion();
 
   // Authentication & PWA state
@@ -81,11 +85,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSuccess }) => {
         document.referrer.includes('android-app://'));
 
     if (isStandalone) {
+      setAppInstalled(true);
       useExperienceStore.getState().showToast('Plant Talk is already installed on your device!', 'info');
+      if (onInstall) onInstall();
       if (currentUser) {
         onSuccess();
       } else {
-        setIsAuthModalOpen(true);
+        navigateTo('login');
       }
       return;
     }
@@ -98,14 +104,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSuccess }) => {
         if (choice && choice.outcome === 'accepted') {
           useExperienceStore.getState().showToast('Plant Talk installed successfully! Welcome 🌱', 'success');
           setDeferredPrompt(null);
+          setAppInstalled(true);
+          if (onInstall) onInstall();
+          if (currentUser) {
+            onSuccess();
+          } else {
+            navigateTo('login');
+          }
+          return;
         } else {
-          useExperienceStore.getState().showToast('Installation dismissed. You can install anytime!', 'info');
+          useExperienceStore.getState().showToast('Proceeding to setup! You can install anytime 🌱', 'info');
         }
       } catch (err) {
         console.warn('[PWA] Install prompt error:', err);
       }
-      return;
     }
+
+    // Mark installed so landing page will not trap the user
+    setAppInstalled(true);
+    if (onInstall) onInstall();
 
     // 3. iOS Safari limitations guidance
     const isIOS =
@@ -117,21 +134,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSuccess }) => {
         "To install on iOS: Tap Share (square with arrow) and select 'Add to Home Screen' 📲",
         'info'
       );
-      return;
+    } else if (!deferredPrompt) {
+      // 4. Guidance for unsupported browsers
+      useExperienceStore.getState().showToast(
+        'To install: click the install icon in your address bar or browser menu 🖥️',
+        'info'
+      );
     }
 
-    // 4. Fallback for unsupported browsers
-    useExperienceStore.getState().showToast(
-      'To install: click the install icon in your address bar or browser menu 🖥️',
-      'info'
-    );
-
-    if (!currentUser) {
-      setIsAuthModalOpen(true);
+    if (currentUser) {
+      onSuccess();
+    } else {
+      navigateTo('login');
     }
   };
 
   const handleAuthenticated = (_user?: any) => {
+    setAppInstalled(true);
     setIsAuthModalOpen(false);
     onSuccess();
   };
@@ -341,7 +360,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onSuccess }) => {
               {/* 10. Secondary Sign in with Google Button */}
               <button
                 type="button"
-                onClick={() => (currentUser ? onSuccess() : setIsAuthModalOpen(true))}
+                onClick={() => {
+                  setAppInstalled(true);
+                  if (currentUser) {
+                    onSuccess();
+                  } else {
+                    navigateTo('login');
+                  }
+                }}
                 className="w-full sm:w-auto px-5 py-2.5 sm:py-3 rounded-full bg-white/95 hover:bg-white text-stone-800 hover:text-stone-950 font-bold text-xs sm:text-sm tracking-tight shadow-md hover:shadow-lg border border-white transition-all cursor-pointer active:scale-97 flex items-center justify-center gap-2.5 max-w-[240px]"
               >
                 <svg className="w-4 h-4 sm:w-4.5 sm:h-4.5" viewBox="0 0 24 24">

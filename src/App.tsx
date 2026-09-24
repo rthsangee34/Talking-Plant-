@@ -1,20 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import { LandingPage } from './components/landing/LandingPage';
+import { LoginPage } from './components/auth/LoginPage';
+import { HomePage } from './components/setup/HomePage';
 import { PlantTalkDashboard } from './components/dashboard/PlantTalkDashboard';
 import { useSettingsStore } from './stores/plant/settings-store';
 import { useExperienceStore } from './stores/plant/experience-store';
+import { useFirebaseAuthSession, signOutUser } from './services/firebase/firebase';
+import { useIsAppInstalled } from './lib/install-manager';
+import { useAppRoute } from './lib/router';
 import { CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 
 export default function App() {
-  const { apiKey, apiKeyConfigured, apiStatus, validateAndConnectKey, setApiKeyConfigured } =
-    useSettingsStore();
+  const { apiKey, validateAndConnectKey, setApiKeyConfigured } = useSettingsStore();
   const { toast } = useExperienceStore();
 
+  const [installed, setInstalled] = useIsAppInstalled();
+  const { user, authLoading, isAuthenticated } = useFirebaseAuthSession();
+  const [route, navigate] = useAppRoute();
   const [isInitializing, setIsInitializing] = useState<boolean>(true);
-  const [hasEnteredApp, setHasEnteredApp] = useState<boolean>(false);
 
   // ───────────────────────────────────────────────────────────────────────────
   // STARTUP INITIALIZATION
+  // Validate stored API key if present on startup, and resolve splash screen
   // ───────────────────────────────────────────────────────────────────────────
   useEffect(() => {
     let isMounted = true;
@@ -22,21 +29,17 @@ export default function App() {
     async function checkStartupApiKey() {
       const storedKey = apiKey?.trim() || import.meta.env.VITE_GEMINI_API_KEY || '';
 
-      if (!storedKey) {
-        if (isMounted) {
-          setIsInitializing(false);
+      if (storedKey) {
+        try {
+          await validateAndConnectKey(storedKey);
+          setApiKeyConfigured(true);
+        } catch {
+          // Graceful fallback without blocking app startup
         }
-        return;
       }
 
-      try {
-        await validateAndConnectKey(storedKey);
-      } catch {
-        // Fallback gracefully without blocking landing page
-      } finally {
-        if (isMounted) {
-          setIsInitializing(false);
-        }
+      if (isMounted) {
+        setIsInitializing(false);
       }
     }
 
@@ -48,9 +51,44 @@ export default function App() {
   }, []);
 
   // ───────────────────────────────────────────────────────────────────────────
-  // STARTUP INITIALIZATION SPLASH (Smooth, quick)
+  // ROUTE GUARDS & REDIRECTION LOGIC
+  // Enforces mutually exclusive routing rules and prevents redirect loops:
+  // 1. If not installed -> Landing Page ONLY.
+  // 2. If installed & not authenticated -> Login ONLY.
+  // 3. If installed & authenticated -> Homepage (or Main UI if on /dashboard).
   // ───────────────────────────────────────────────────────────────────────────
-  if (isInitializing) {
+  useEffect(() => {
+    // Hold routing decisions until authentication session and initial setup are resolved
+    if (authLoading || isInitializing) return;
+
+    if (!installed) {
+      // Rule 1: Fresh user / Not installed -> Show Landing Page
+      if (route !== 'landing') {
+        navigate('landing', true);
+      }
+    } else if (!isAuthenticated) {
+      // Rule 2: Installed but not authenticated -> Show Login
+      // Landing Page must NOT appear again after installation.
+      // Homepage / Main UI cannot be accessed without authentication.
+      if (route !== 'login') {
+        navigate('login', true);
+      }
+    } else {
+      // Rule 3: Installed and authenticated
+      // If user was directed to Landing or Login or root '/', send to Homepage
+      if (route === 'landing' || route === 'login') {
+        navigate('home', true);
+      }
+      // If route is 'home' or 'dashboard', remain on that route (preserves refresh state)
+    }
+  }, [authLoading, isInitializing, installed, isAuthenticated, route, navigate]);
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // STARTUP INITIALIZATION SPLASH
+  // Shown during auth session restoration and initial key verification to prevent
+  // page flashing or false redirects during page refresh.
+  // ───────────────────────────────────────────────────────────────────────────
+  if (authLoading || isInitializing) {
     return (
       <div className="min-h-[100dvh] w-full flex flex-col items-center justify-center bg-[#0d281a] text-white font-sans select-none p-4">
         <div className="relative mb-4">
@@ -68,6 +106,10 @@ export default function App() {
     );
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // VIEW RENDERING
+  // Deterministic component rendering guided by installation and auth state
+  // ───────────────────────────────────────────────────────────────────────────
   return (
     <>
       {/* Global Toast Notification */}
@@ -94,31 +136,50 @@ export default function App() {
         </div>
       )}
 
-      {/* ─────────────────────────────────────────────────────────────────────
-          LANDING PAGE -> EXISTING PLANT TALK DASHBOARD
-          1. Initial state: Motion Graphics Landing Page
-          2. Install App / Sign in with Google -> Opens Existing Dashboard
-          ───────────────────────────────────────────────────────────────────── */}
-      {!hasEnteredApp ? (
+      {/* 1. NOT INSTALLED: Landing Page */}
+      {!installed && (
         <LandingPage
-          onSuccess={async () => {
-            const keyToUse = apiKey?.trim() || import.meta.env.VITE_GEMINI_API_KEY || '';
-            try {
-              await validateAndConnectKey(keyToUse);
-            } catch (err) {
-              console.warn('[Plant Talk] Auto-connection warning:', err);
-            }
-            setApiKeyConfigured(true);
-            setHasEnteredApp(true);
+          onInstall={() => {
+            setInstalled(true);
+            navigate('login');
+          }}
+          onSuccess={() => {
+            setInstalled(true);
+            navigate('home');
           }}
         />
-      ) : (
-        <PlantTalkDashboard
-          onDisconnect={() => {
-            setApiKeyConfigured(false);
-            setHasEnteredApp(false);
+      )}
+
+      {/* 2. INSTALLED BUT NOT AUTHENTICATED: Login Screen */}
+      {installed && !isAuthenticated && (
+        <LoginPage
+          onSuccess={() => {
+            navigate('home');
           }}
         />
+      )}
+
+      {/* 3. INSTALLED AND AUTHENTICATED: Homepage or Main UI Dashboard */}
+      {installed && isAuthenticated && (
+        <>
+          {route === 'dashboard' ? (
+            <PlantTalkDashboard
+              onDisconnect={() => {
+                navigate('home');
+              }}
+              onSignOut={async () => {
+                await signOutUser();
+                navigate('login');
+              }}
+            />
+          ) : (
+            <HomePage
+              onSuccess={() => {
+                navigate('dashboard');
+              }}
+            />
+          )}
+        </>
       )}
     </>
   );

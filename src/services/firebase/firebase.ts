@@ -10,15 +10,15 @@ import {
   Auth,
 } from "firebase/auth";
 
-// Official Firebase configuration provided for Plant Talk
+// Firebase configuration for talkingplant-app (the project owning talkingplant.web.app)
 const firebaseConfig = {
-  apiKey: "AIzaSyAX-QGLRBEcBcKVDdoeBwB2SjtOiWx_GvI",
-  authDomain: "plant-talk-f0355.firebaseapp.com",
-  projectId: "plant-talk-f0355",
-  storageBucket: "plant-talk-f0355.firebasestorage.app",
-  messagingSenderId: "809501640762",
-  appId: "1:809501640762:web:d79be467278b3502a84d03",
-  measurementId: "G-83WMQXK71M",
+  apiKey: "AIzaSyDOB5qLNwk-58nJW_PE5gXXAJrZjxdPPzA",
+  authDomain: "talkingplant-app.firebaseapp.com",
+  projectId: "talkingplant-app",
+  storageBucket: "talkingplant-app.firebasestorage.app",
+  messagingSenderId: "622733280855",
+  appId: "1:622733280855:web:52411e9331da2106480512",
+  measurementId: "G-83WMQXK71M"
 };
 
 // Initialize Firebase App singleton safely
@@ -60,6 +60,36 @@ export async function signOutUser(): Promise<void> {
   } catch (err) {
     console.error("[Firebase Auth] Sign out error:", err);
   }
+}
+
+import { useState, useEffect } from "react";
+
+export interface AuthSession {
+  user: User | null;
+  authLoading: boolean;
+  isAuthenticated: boolean;
+}
+
+export function useFirebaseAuthSession(): AuthSession {
+  const [session, setSession] = useState<AuthSession>({
+    user: auth.currentUser,
+    authLoading: true,
+    isAuthenticated: !!auth.currentUser,
+  });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setSession({
+        user,
+        authLoading: false,
+        isAuthenticated: !!user,
+      });
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  return session;
 }
 
 export { onAuthStateChanged };

@@ -11,6 +11,7 @@ import {
   Mic,
   MicOff,
   Volume2,
+  AlertCircle,
 } from 'lucide-react';
 import { useSensorsStore } from '../../stores/plant/sensors-store';
 import { useSettingsStore } from '../../stores/plant/settings-store';
@@ -19,7 +20,7 @@ import { useLiveVoiceSession } from '../../lib/plant/live-voice-manager';
 export const PlantHealthOverviewCard: React.FC = () => {
   const { readings, isEspConnected } = useSensorsStore();
   const { setIsFullscreenVisionOpen } = useSettingsStore();
-  const { liveStatus, isLiveActive, toggleLiveSpeaking } = useLiveVoiceSession();
+  const { liveStatus, isLiveActive, activeError, toggleLiveSpeaking } = useLiveVoiceSession();
 
   const [lastUpdatedTime, setLastUpdatedTime] = useState<string>('10:26 AM');
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -169,48 +170,57 @@ export const PlantHealthOverviewCard: React.FC = () => {
       {/* ─────────────────────────────────────────────────────────────
           BOTTOM ACTION CONTROLS: FULL SCREEN & START SPEAK
           ───────────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between pt-1">
-        {/* View Full Screen Button */}
-        <button
-          type="button"
-          onClick={() => setIsFullscreenVisionOpen(true)}
-          className="px-3.5 py-2 rounded-xl bg-white hover:bg-stone-50 border border-stone-200 text-stone-700 text-xs font-semibold flex items-center gap-2 shadow-2xs transition-all cursor-pointer active:scale-95"
-        >
-          <Maximize2 className="w-3.5 h-3.5 text-emerald-700" />
-          <span>View Full Screen</span>
-        </button>
+      <div className="flex flex-col gap-1.5 pt-1">
+        <div className="flex items-center justify-between">
+          {/* View Full Screen Button */}
+          <button
+            type="button"
+            onClick={() => setIsFullscreenVisionOpen(true)}
+            className="px-3.5 py-2 rounded-xl bg-white hover:bg-stone-50 border border-stone-200 text-stone-700 text-xs font-semibold flex items-center gap-2 shadow-2xs transition-all cursor-pointer active:scale-95"
+          >
+            <Maximize2 className="w-3.5 h-3.5 text-emerald-700" />
+            <span>View Full Screen</span>
+          </button>
 
-        {/* Start Speak Large Emerald Button */}
-        <button
-          type="button"
-          onClick={toggleLiveSpeaking}
-          className={`px-7 py-2.5 rounded-full font-bold text-xs sm:text-sm tracking-wide shadow-md flex items-center gap-2 transition-all cursor-pointer active:scale-95 ${
-            isLiveActive
-              ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse shadow-rose-900/20'
-              : 'bg-emerald-800 hover:bg-emerald-900 text-white shadow-emerald-900/20'
-          }`}
-        >
-          {isLiveActive ? (
-            <>
-              {liveStatus === 'speaking' ? (
-                <>
-                  <Volume2 className="w-4 h-4 text-white animate-bounce" />
-                  <span>Plant Speaking... Stop</span>
-                </>
-              ) : (
-                <>
-                  <MicOff className="w-4 h-4" />
-                  <span>Listening... Stop</span>
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              <Mic className="w-4 h-4" />
-              <span>Start Speak</span>
-            </>
-          )}
-        </button>
+          {/* Start Speak Large Emerald Button */}
+          <button
+            type="button"
+            onClick={toggleLiveSpeaking}
+            className={`px-7 py-2.5 rounded-full font-bold text-xs sm:text-sm tracking-wide shadow-md flex items-center gap-2 transition-all cursor-pointer active:scale-95 ${
+              isLiveActive
+                ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse shadow-rose-900/20'
+                : 'bg-emerald-800 hover:bg-emerald-900 text-white shadow-emerald-900/20'
+            }`}
+          >
+            {isLiveActive ? (
+              <>
+                {liveStatus === 'speaking' ? (
+                  <>
+                    <Volume2 className="w-4 h-4 text-white animate-bounce" />
+                    <span>Plant Speaking... Stop</span>
+                  </>
+                ) : (
+                  <>
+                    <MicOff className="w-4 h-4" />
+                    <span>Listening... Stop</span>
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                <Mic className="w-4 h-4" />
+                <span>Start Speak</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {activeError && (
+          <div className="flex items-center gap-1.5 text-[11px] text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl border border-rose-200/80 animate-in fade-in duration-200">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-600" />
+            <span>{activeError}</span>
+          </div>
+        )}
       </div>
     </div>
   );

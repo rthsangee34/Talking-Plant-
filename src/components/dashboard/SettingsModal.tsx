@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Settings,
@@ -18,17 +19,21 @@ import { useSettingsStore } from '../../stores/plant/settings-store';
 import { useCameraStore } from '../../stores/plant/camera-store';
 import { useSensorsStore } from '../../stores/plant/sensors-store';
 import { connectESP32, disconnectESP32 } from '../../lib/plant/esp32-serial';
+import { signOutUser, auth } from '../../services/firebase/firebase';
+import { navigateTo } from '../../lib/router';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   onDisconnect?: () => void;
+  onSignOut?: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   onDisconnect,
+  onSignOut,
 }) => {
   const {
     apiKey,
@@ -84,8 +89,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-emerald-950/60 backdrop-blur-sm animate-fade-in font-sans">
+  const handleSignOut = async () => {
+    try {
+      await signOutUser();
+      onClose();
+      if (onSignOut) {
+        onSignOut();
+      } else {
+        navigateTo('login');
+      }
+    } catch (err) {
+      console.error('Sign out error:', err);
+    }
+  };
+
+  const modalContent = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-emerald-950/60 backdrop-blur-sm animate-fade-in font-sans">
       <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-stone-200 overflow-hidden flex flex-col">
         
         {/* Header */}
@@ -213,6 +232,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <LogOut className="w-3.5 h-3.5" />
                     <span>Disconnect AI</span>
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="px-3.5 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 border border-stone-300 text-stone-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ml-auto"
+                    title={auth.currentUser?.email ? `Signed in as ${auth.currentUser.email}` : 'Sign out'}
+                  >
+                    <LogOut className="w-3.5 h-3.5 text-stone-500" />
+                    <span>Sign Out</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -323,4 +352,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       )}
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

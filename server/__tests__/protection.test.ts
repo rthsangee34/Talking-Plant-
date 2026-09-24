@@ -8,6 +8,7 @@ vi.mock('../gemini', () => ({
   }),
   isApiKeyConfigured: vi.fn(() => true),
   GEMINI_VISION_MODEL: 'gemini-3.6-flash',
+  GEMINI_LIVE_VOICE: 'Aoede',
 }));
 
 vi.mock('../../src/lib/api/response-logging', () => ({

@@ -204,7 +204,7 @@ PlantTalk v4.0 features native voice streaming through **Gemini Live WebSockets*
 - The server initializes an authenticated session with Google's Gemini Live API (`GEMINI_LIVE_MODEL = 'gemini-2.0-flash-exp'`).
 - The session configures:
   - **Modality**: `Modality.AUDIO`
-  - **Speech Configuration**: `voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }`
+  - **Speech Configuration**: `voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Aoede' } }` (warm female plant voice)
   - **System Instruction**: `PLANT_LIVE_SYSTEM_INSTRUCTION` (enforcing the botanical first-person persona and Plant-World Rule).
   - **Tools**: Dynamic function declarations for plant introspection.
 

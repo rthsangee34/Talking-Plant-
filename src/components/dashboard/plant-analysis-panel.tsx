@@ -4,6 +4,7 @@ import { useObserverStore } from '../../stores/plant/observer-store';
 import { useCameraStore } from '../../stores/plant/camera-store';
 import { executePlantAnalysis } from '../../lib/plant/run-analysis';
 import { useObservationLoopStore } from '../../stores/plant/observation-loop-store';
+import { getFemaleVoice, getAllVoices } from '../../lib/plant/warning-voice-system';
 
 export const PlantAnalysisPanel: React.FC = () => {
   const { lastAnalysis, isAnalyzing } = useObserverStore();
@@ -52,25 +53,15 @@ export const PlantAnalysisPanel: React.FC = () => {
       const utterance = new SpeechSynthesisUtterance(turn.text);
       utteranceRef.current = utterance; // Prevent garbage collection
       
-      const voices = window.speechSynthesis.getVoices();
-      
-      // Auto-detect language based on Tamil unicode range
-      if (/[\u0B80-\u0BFF]/.test(turn.text)) {
-        utterance.lang = 'ta-IN';
-        const tamilVoice = voices.find(v => v.lang.includes('ta') || v.name.toLowerCase().includes('tamil'));
-        if (tamilVoice) {
-          utterance.voice = tamilVoice;
-        } else if (voices.length > 0) {
-          // If no Tamil voice is found, browser might fail. Warn the user in console.
-          if (currentIdx === 0) {
-            console.warn("No Tamil voice found on this device. The audio might be silent.");
-          }
-          utterance.voice = voices[0]; // fallback
-        }
-      } else {
-        utterance.lang = 'en-US';
-        const englishVoice = voices.find(v => v.lang.includes('en'));
-        if (englishVoice) utterance.voice = englishVoice;
+      const isTamil = /[\u0B80-\u0BFF]/.test(turn.text);
+      utterance.lang = isTamil ? 'ta-IN' : 'en-US';
+      utterance.pitch = 1.2; // Warm female plant tone
+      utterance.rate = 1.0;
+
+      const voices = getAllVoices();
+      const femaleVoice = getFemaleVoice(voices, isTamil ? 'ta' : 'en');
+      if (femaleVoice) {
+        utterance.voice = femaleVoice;
       }
 
       utterance.onend = () => {

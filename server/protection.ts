@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { Type } from '@google/genai';
-import { getGemini, ensureApiKey, GEMINI_VISION_MODEL } from './gemini';
+import { getGemini, ensureApiKey, GEMINI_VISION_MODEL, GEMINI_LIVE_VOICE } from './gemini';
 import { PLANT_PROTECTION_ALERT_SYSTEM_PROMPT } from '../src/lib/plant/prompts';
 import { logServerError, logServerEvent } from '../src/lib/api/response-logging';
 
@@ -115,7 +115,7 @@ async function synthesizeGeminiVoice(
         responseModalities: ['AUDIO'],
         speechConfig: {
           voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Zephyr' },
+            prebuiltVoiceConfig: { voiceName: GEMINI_LIVE_VOICE || 'Aoede' },
           },
         },
       },

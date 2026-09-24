@@ -17,6 +17,7 @@ import { useSensorsStore } from '../../stores/plant/sensors-store';
 import { useSettingsStore } from '../../stores/plant/settings-store';
 import { defaultAIProvider } from '../../services/ai/gemini-provider';
 import { useLiveVoiceSession } from '../../lib/plant/live-voice-manager';
+import { getFemaleVoice, getAllVoices } from '../../lib/plant/warning-voice-system';
 
 export const ChatWithPlantCard: React.FC = () => {
   const {
@@ -95,12 +96,21 @@ export const ChatWithPlantCard: React.FC = () => {
         timestamp: aiTime,
       });
 
-      // Voice Mode audio playback
+      // Voice Mode audio playback with female voice
       if (isVoiceMode && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(resp.reply);
-        utterance.pitch = 1.05;
+        const isTamil = /[\u0B80-\u0BFF]/.test(resp.reply) || resp.reply.toLowerCase().includes('vanakkam');
+        utterance.lang = isTamil ? 'ta-IN' : 'en-US';
+        utterance.pitch = 1.2;
         utterance.rate = 1.0;
+
+        const voices = getAllVoices();
+        const femaleVoice = getFemaleVoice(voices, isTamil ? 'ta' : 'en');
+        if (femaleVoice) {
+          utterance.voice = femaleVoice;
+        }
+
         window.speechSynthesis.speak(utterance);
       }
     } catch (err: any) {

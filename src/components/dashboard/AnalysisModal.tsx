@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X,
   Sprout,
@@ -87,8 +88,8 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ isOpen, onClose })
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-emerald-950/60 backdrop-blur-sm animate-fade-in">
+  const modalContent = (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-emerald-950/60 backdrop-blur-sm animate-fade-in">
       <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] shadow-2xl border border-stone-200 overflow-hidden flex flex-col font-sans">
         
         {/* ─────────────────────────────────────────────────────────────
@@ -282,4 +283,6 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ isOpen, onClose })
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

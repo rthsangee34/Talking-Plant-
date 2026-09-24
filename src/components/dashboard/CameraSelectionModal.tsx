@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Camera,
   CameraOff,
@@ -176,12 +177,12 @@ export const CameraSelectionModal: React.FC<CameraSelectionModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
+  const modalContent = (
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="camera-selection-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-emerald-950/60 backdrop-blur-sm animate-fade-in font-sans"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-emerald-950/60 backdrop-blur-sm animate-fade-in font-sans"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isConnecting) {
           onClose();
@@ -380,4 +381,6 @@ export const CameraSelectionModal: React.FC<CameraSelectionModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

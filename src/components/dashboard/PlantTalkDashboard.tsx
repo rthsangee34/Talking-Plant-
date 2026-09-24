@@ -15,9 +15,13 @@ import { connectESP32 } from '../../lib/plant/esp32-serial';
 
 interface PlantTalkDashboardProps {
   onDisconnect?: () => void;
+  onSignOut?: () => void;
 }
 
-export const PlantTalkDashboard: React.FC<PlantTalkDashboardProps> = ({ onDisconnect }) => {
+export const PlantTalkDashboard: React.FC<PlantTalkDashboardProps> = ({
+  onDisconnect,
+  onSignOut,
+}) => {
   const {
     isSettingsModalOpen,
     closeSettingsModal,
@@ -191,6 +195,7 @@ export const PlantTalkDashboard: React.FC<PlantTalkDashboardProps> = ({ onDiscon
         isOpen={isSettingsModalOpen}
         onClose={closeSettingsModal}
         onDisconnect={onDisconnect}
+        onSignOut={onSignOut}
       />
 
       {/* Fullscreen Camera Vision Modal */}

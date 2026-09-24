@@ -83,6 +83,117 @@ export function addWarningPhrase(phrase: string, lang: TouchVoiceLanguage = 'en'
   }
 }
 
+let cachedVoices: SpeechSynthesisVoice[] = [];
+
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  cachedVoices = window.speechSynthesis.getVoices();
+  window.speechSynthesis.onvoiceschanged = () => {
+    cachedVoices = window.speechSynthesis.getVoices();
+  };
+}
+
+/**
+ * Returns all available SpeechSynthesis voices, using pre-cached array if available.
+ */
+export function getAllVoices(): SpeechSynthesisVoice[] {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return [];
+  const voices = window.speechSynthesis.getVoices();
+  if (voices && voices.length > 0) {
+    cachedVoices = voices;
+    return voices;
+  }
+  return cachedVoices;
+}
+
+/**
+ * Select the best available female SpeechSynthesis voice for the target language.
+ */
+export function getFemaleVoice(
+  voices?: SpeechSynthesisVoice[],
+  lang: TouchVoiceLanguage = 'en'
+): SpeechSynthesisVoice | null {
+  const voiceList = voices && voices.length > 0 ? voices : getAllVoices();
+  if (!voiceList || voiceList.length === 0) return null;
+
+  if (lang === 'ta') {
+    // Look for Tamil voices (ta-IN, ta-LK, ta)
+    const tamilFemaleVoice = voiceList.find(
+      (v) =>
+        (v.lang.toLowerCase().startsWith('ta') || v.name.toLowerCase().includes('tamil')) &&
+        (v.name.toLowerCase().includes('female') || !v.name.toLowerCase().includes('male'))
+    );
+    if (tamilFemaleVoice) return tamilFemaleVoice;
+
+    const anyTamilVoice = voiceList.find(
+      (v) => v.lang.toLowerCase().startsWith('ta') || v.name.toLowerCase().includes('tamil')
+    );
+    if (anyTamilVoice) return anyTamilVoice;
+  }
+
+  // Prioritize female voices across Windows, Mac, Chrome, Edge, iOS, Android
+  const femaleKeywords = [
+    'zira',                       // Windows default female (Microsoft Zira)
+    'google uk english female',   // Chrome female
+    'google us english female',
+    'jenny',                      // Microsoft Jenny (Natural female)
+    'aria',                       // Microsoft Aria (Natural female)
+    'heera',                      // Microsoft Heera (Indian English Female)
+    'neerja',                     // Microsoft Neerja (Indian English Female)
+    'veena',                      // Indian English Female
+    'samantha',                   // macOS/iOS female
+    'karen',                      // macOS female
+    'victoria',                   // macOS female
+    'moira',                      // macOS female
+    'fiona',                      // macOS female
+    'tessa',                      // English female
+    'serena',                     // English female
+    'female',
+    'woman',
+    'girl',
+  ];
+
+  for (const name of femaleKeywords) {
+    const v = voiceList.find((item) => item.name.toLowerCase().includes(name));
+    if (v) return v;
+  }
+
+  // Explicit male voices to strictly reject
+  const maleKeywords = [
+    'david',
+    'mark',
+    'george',
+    'guy',
+    'richard',
+    'james',
+    'daniel',
+    'alex',
+    'fred',
+    'ravi',
+    'stefan',
+    'paul',
+    'google us english',
+    'google uk english male',
+    'male',
+    'man',
+    'boy',
+  ];
+
+  // Fallback: Pick an English voice that is NOT a known male voice
+  const englishVoices = voiceList.filter((v) => v.lang.toLowerCase().startsWith('en'));
+  const nonMale = englishVoices.find(
+    (v) => !maleKeywords.some((m) => v.name.toLowerCase().includes(m))
+  );
+  if (nonMale) return nonMale;
+
+  // Fallback to any voice that is not in the male blacklist
+  const anyNonMale = voiceList.find(
+    (v) => !maleKeywords.some((m) => v.name.toLowerCase().includes(m))
+  );
+  if (anyNonMale) return anyNonMale;
+
+  return englishVoices[0] || voiceList[0] || null;
+}
+
 /**
  * Select the best available SpeechSynthesis voice for the target language.
  */
@@ -90,37 +201,7 @@ export function pickVoiceForLanguage(
   voices: SpeechSynthesisVoice[],
   lang: TouchVoiceLanguage
 ): SpeechSynthesisVoice | null {
-  if (!voices || voices.length === 0) return null;
-
-  if (lang === 'ta') {
-    // Look for Tamil voices (ta-IN, ta-LK, ta)
-    const tamilVoice = voices.find(
-      (v) => v.lang.toLowerCase().startsWith('ta') || v.name.toLowerCase().includes('tamil')
-    );
-    if (tamilVoice) return tamilVoice;
-  }
-
-  // Look for friendly English female/lively voice
-  const preferredEn = [
-    'google uk english female',
-    'samantha',
-    'karen',
-    'victoria',
-    'moira',
-    'zira',
-    'google us english',
-  ];
-
-  for (const name of preferredEn) {
-    const v = voices.find((item) => item.name.toLowerCase().includes(name));
-    if (v) return v;
-  }
-
-  // English fallback
-  const enVoice = voices.find((v) => v.lang.toLowerCase().startsWith('en'));
-  if (enVoice) return enVoice;
-
-  return voices[0] || null;
+  return getFemaleVoice(voices, lang);
 }
 
 export interface VoicePlayOptions {
@@ -289,18 +370,18 @@ export function speakTouchWarning(
         // Anchor to global window to avoid Chrome garbage-collection bug
         (window as unknown as { __activePlantUtterance?: SpeechSynthesisUtterance }).__activePlantUtterance = utterance;
 
-        utterance.pitch = options?.pitch ?? 1.15; // Lively, slightly higher plant pitch
-        utterance.rate = options?.rate ?? 1.05;   // Energetic cadence
+        utterance.pitch = options?.pitch ?? 1.2; // Lively, warm female plant pitch
+        utterance.rate = options?.rate ?? 1.0;   // Natural conversational cadence
         utterance.lang = lang === 'ta' ? 'ta-IN' : 'en-US';
 
-        const voices = window.speechSynthesis.getVoices();
-        const chosenVoice = pickVoiceForLanguage(voices, lang);
+        const voices = getAllVoices();
+        const chosenVoice = getFemaleVoice(voices, lang);
         if (chosenVoice) {
           utterance.voice = chosenVoice;
         } else if (lang === 'ta') {
           // Windows Chrome has no Tamil voices installed by default.
-          // Fall back to English voice so user hears alert rather than silence.
-          const enVoice = pickVoiceForLanguage(voices, 'en');
+          // Fall back to female English voice so user hears alert rather than silence.
+          const enVoice = getFemaleVoice(voices, 'en');
           if (enVoice) {
             utterance.voice = enVoice;
             utterance.lang = enVoice.lang || 'en-US';

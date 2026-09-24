@@ -1,4 +1,4 @@
-const CACHE_NAME = 'talking-plant-shell-v1';
+const CACHE_NAME = 'talking-plant-shell-v5';
 
 // Static assets to pre-cache for app shell
 const PRECACHE_ASSETS = [
