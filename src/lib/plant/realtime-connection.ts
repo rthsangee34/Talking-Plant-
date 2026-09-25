@@ -485,9 +485,11 @@ export class GeminiLiveConnection {
 
       // Call chat() with context & history
       let replyText: string;
+      let directAudio: string | undefined;
       try {
         const response = await defaultAIProvider.chat(userTranscript, apiKey, sensorContext, []);
         replyText = response.reply || '';
+        directAudio = response.audioBase64;
       } catch {
         replyText = '';
       }
@@ -509,7 +511,7 @@ export class GeminiLiveConnection {
 
       // Strategy 1: Use Gemini TTS for native 24kHz female voice audio (best quality, speaks Tamil & English flawlessly)
       const keyForTTS = apiKey || import.meta.env.VITE_GEMINI_API_KEY || '';
-      const audioBase64 = await this.generateGeminiTTS(cleanedReply, keyForTTS);
+      const audioBase64 = directAudio || (await this.generateGeminiTTS(cleanedReply, keyForTTS));
       if (audioBase64) {
         const played = await playGeminiAudio(audioBase64);
         if (played) {

@@ -193,14 +193,60 @@ export class GeminiProvider implements AIProvider {
       };
     }
 
-    return this.chatDirectly(message, keyToUse, context, history);
+    return this.chatDirectly(message, keyToUse, context, history, withAudio);
+  }
+
+  private async synthesizeTTSDirectly(text: string, apiKey: string): Promise<string | undefined> {
+    const cleaned = cleanTextForSpeech(text);
+    if (!cleaned || !apiKey) return undefined;
+
+    const ttsModels = [
+      'gemini-2.5-flash-preview-tts',
+      'gemini-3.8-flash-tts',
+      'gemini-3.1-flash-tts-preview',
+    ];
+
+    for (const model of ttsModels) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: cleaned }] }],
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: 'Aoede' },
+                },
+              },
+            },
+          }),
+        });
+
+        if (!res.ok) continue;
+
+        const data = await res.json();
+        const audioPart = data.candidates?.[0]?.content?.parts?.find(
+          (p: any) => p.inlineData?.mimeType?.startsWith('audio/')
+        );
+        if (audioPart?.inlineData?.data) {
+          return audioPart.inlineData.data;
+        }
+      } catch {
+        // Try next candidate
+      }
+    }
+    return undefined;
   }
 
   private async chatDirectly(
     message: string,
     apiKey: string,
     context: PlantSensorContext,
-    history: ChatMessageEntry[] = []
+    history: ChatMessageEntry[] = [],
+    withAudio = true
   ): Promise<{ reply: string; audioBase64?: string }> {
     const prefLang = useSettingsStore.getState().preferredLanguage || 'mixed';
     const hasTamil =
@@ -264,7 +310,12 @@ Keep your entire response to 1-2 short, punchy spoken sentences. Do NOT output a
           const data = await res.json();
           const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text;
           if (replyText) {
-            return { reply: cleanTextForSpeech(replyText.trim()) };
+            const cleaned = cleanTextForSpeech(replyText.trim());
+            let audioBase64: string | undefined;
+            if (withAudio) {
+              audioBase64 = await this.synthesizeTTSDirectly(cleaned, apiKey);
+            }
+            return { reply: cleaned, audioBase64 };
           }
         }
       } catch {
