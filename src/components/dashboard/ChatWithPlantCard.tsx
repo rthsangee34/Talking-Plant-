@@ -17,7 +17,8 @@ import { useSensorsStore } from '../../stores/plant/sensors-store';
 import { useSettingsStore } from '../../stores/plant/settings-store';
 import { defaultAIProvider } from '../../services/ai/gemini-provider';
 import { useLiveVoiceSession } from '../../lib/plant/live-voice-manager';
-import { getFemaleVoice, getAllVoices } from '../../lib/plant/warning-voice-system';
+import { getFemaleVoice, getAllVoices, playGeminiAudio } from '../../lib/plant/warning-voice-system';
+import { cleanTextForSpeech } from '../../lib/plant/text-speech-cleaner';
 
 export const ChatWithPlantCard: React.FC = () => {
   const {
@@ -96,25 +97,30 @@ export const ChatWithPlantCard: React.FC = () => {
         timestamp: aiTime,
       });
 
-      // Voice Mode audio playback with female voice
-      if (isVoiceMode && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        const isTamil =
-          /[\u0B80-\u0BFF]/.test(resp.reply) ||
-          /[\u0B80-\u0BFF]/.test(message) ||
-          /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|thanni|panra|inniku|romba|tamil)\b/i.test(message);
-        const utterance = new SpeechSynthesisUtterance(resp.reply);
-        utterance.lang = isTamil ? 'ta-IN' : 'en-US';
-        utterance.pitch = 1.2;
-        utterance.rate = 1.0;
+      // Voice Mode audio playback with female voice (Native Gemini TTS prioritized, fallback to SpeechSynthesis)
+      if (isVoiceMode) {
+        if (resp.audioBase64) {
+          await playGeminiAudio(resp.audioBase64);
+        } else if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          const cleanedText = cleanTextForSpeech(resp.reply);
+          const isTamil =
+            /[\u0B80-\u0BFF]/.test(cleanedText) ||
+            /[\u0B80-\u0BFF]/.test(message) ||
+            /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|thanni|panra|inniku|romba|tamil)\b/i.test(message);
+          const utterance = new SpeechSynthesisUtterance(cleanedText);
+          utterance.lang = isTamil ? 'ta-IN' : 'en-US';
+          utterance.pitch = 1.15;
+          utterance.rate = 1.05;
 
-        const voices = getAllVoices();
-        const femaleVoice = getFemaleVoice(voices, isTamil ? 'ta' : 'en');
-        if (femaleVoice) {
-          utterance.voice = femaleVoice;
+          const voices = getAllVoices();
+          const femaleVoice = getFemaleVoice(voices, isTamil ? 'ta' : 'en');
+          if (femaleVoice) {
+            utterance.voice = femaleVoice;
+          }
+
+          window.speechSynthesis.speak(utterance);
         }
-
-        window.speechSynthesis.speak(utterance);
       }
     } catch (err: any) {
       addMessage({

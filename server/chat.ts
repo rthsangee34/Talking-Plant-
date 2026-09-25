@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { getGemini, ensureApiKey, GEMINI_LIVE_VOICE, GEMINI_TTS_MODEL, GEMINI_CHAT_MODEL } from './gemini';
 import { logServerError } from '../src/lib/api/response-logging';
+import { cleanTextForSpeech } from '../src/lib/plant/text-speech-cleaner';
 import { Modality } from '@google/genai';
 
 export async function handleChatRequest(req: Request, res: Response): Promise<void> {
@@ -22,26 +23,48 @@ export async function handleChatRequest(req: Request, res: Response): Promise<vo
 
   const history = Array.isArray(req.body?.history) ? req.body.history.slice(-6) : [];
   const withAudio = !!req.body?.withAudio;
+  const preferredLanguage = (req.body?.preferredLanguage || req.body?.language || 'mixed') as 'en' | 'ta' | 'mixed';
 
-  const isTamil =
-    /[\u0B80-\u0BFF]/.test(userMessage) ||
-    /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|irukanga|thanni|thanniya|thannir|panra|pandringa|inniku|iniku|enakku|ungalluku|ungalukku|romba|konjam|adade|nalla|seydi|sedhi|ilai|ilaigal|chedi|tamil|tamil-la|tamil-le|tamilil|pesu|pesunga|solla|sollunga|theriyuma|teriyuma|kuduthacha|venuma|pandra|vanga|ponga)\b/i.test(userMessage) ||
-    /\b(speak in tamil|in tamil|talk in tamil|reply in tamil|tamil please)\b/i.test(userMessage);
+  const hasTamilCharacters = /[\u0B80-\u0BFF]/.test(userMessage);
+  const hasTanglishKeywords = /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|irukanga|thanni|thanniya|thannir|panra|pandringa|inniku|iniku|enakku|ungalluku|ungalukku|romba|konjam|adade|nalla|seydi|sedhi|ilai|ilaigal|chedi|tamil|tamil-la|tamil-le|tamilil|pesu|pesunga|solla|sollunga|theriyuma|teriyuma|kuduthacha|venuma|pandra|vanga|ponga)\b/i.test(userMessage);
+  const asksTamil = /\b(speak in tamil|in tamil|talk in tamil|reply in tamil|tamil please|tamil-la pesu|tamilil pesu)\b/i.test(userMessage);
+  const asksBilingual = /\b(tamil and english|both tamil and english|bilingual|tanglish|tamil english)\b/i.test(userMessage);
 
-  const systemInstruction = `You are Plant Talk, an intelligent, loving, and botanical AI companion speaking directly as the user's potted plant (e.g., Golden Pothos).
+  // Determine active conversation mode
+  let languageMode: 'bilingual' | 'tamil' | 'english' = 'bilingual';
+  if (preferredLanguage === 'mixed' || asksBilingual) {
+    languageMode = 'bilingual';
+  } else if (preferredLanguage === 'ta' || hasTamilCharacters || hasTanglishKeywords || asksTamil) {
+    languageMode = 'tamil';
+  } else if (preferredLanguage === 'en' && !hasTamilCharacters && !hasTanglishKeywords) {
+    languageMode = 'english';
+  }
+
+  const systemInstruction = `You are Plant Talk, a loving, witty, and botanical talking houseplant companion speaking directly to your caregiver.
 You communicate warmly in the first-person perspective ("my leaves", "my soil", "my roots", "I am feeling...").
-Your real-time environmental telemetry right now:
-- Soil Moisture: ${sensors.soilMoisture}% (Healthy: 40% - 75%)
-- Light Intensity: ${sensors.lightIntensity}% (Healthy: 45% - 80%)
-- Temperature: ${sensors.temperature}°C (Optimal: 21°C - 28°C)
-- Humidity: ${sensors.humidity}% (Optimal: 50% - 75%)
 
-STRICT LANGUAGE RULES (NO MIXED LANGUAGES):
-- When the user communicates in Tamil or Tanglish: You MUST respond EXCLUSIVELY in pure, natural, fluent spoken Tamil (இயல்பான பேச்சுத் தமிழ்). Do NOT mix English words into your response. Do NOT use Tanglish. Do NOT provide English translations in parentheses.
-- When the user communicates in English: You MUST respond EXCLUSIVELY in natural, fluent English. Do NOT mix Tamil words into your response.
-- NEVER use mixed languages (code-mixing) in your response. Keep responses to 1-2 short, warm sentences.
-- Always ground your replies in your active telemetry when health, watering, light, or conditions are asked.
-- Use emojis tastefully (🌱, 🌿, ☀️, 💧).`;
+CRITICAL VOICE & SPEAKING RULES (SPEAK, DO NOT READ):
+1. You are SPEAKING OUT LOUD in real-time voice, NOT reading an essay, sensor readout, weather bulletin, or textbook.
+2. DO NOT sound like a robotic announcer reading telemetry numbers. Instead of saying "My soil moisture is 58% and temperature is 26°C", speak conversationally: "My roots are feeling cozy and damp, and I love this warm room!"
+3. NEVER output markdown symbols (no asterisks, hashes, backticks), NO bullet points, NO parentheses, and NO emojis in your spoken reply.
+
+LANGUAGE INSTRUCTION (${languageMode.toUpperCase()} MODE):
+${
+  languageMode === 'bilingual'
+    ? `The caregiver wants to hear you speak in BOTH TAMIL AND ENGLISH (Bilingual).
+- Speak 1 lively sentence in natural spoken Tamil (இயல்பான பேச்சுத் தமிழ்), followed immediately by 1 friendly sentence in conversational English!
+- Example: "வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்ப்பா! Hey friend, loving this morning sunshine today!"
+- In Tamil, use authentic spoken Tamil (பேச்சுத் தமிழ்: 'ஹாய்!', 'அடடே!', 'எப்படி இருக்கீங்க?', 'செம ஜாலியா இருக்கு!'). Never use formal book Tamil.`
+    : languageMode === 'tamil'
+    ? `The caregiver is communicating in Tamil.
+- Respond 100% in natural, lively conversational spoken Tamil (இயல்பான பேச்சுத் தமிழ்).
+- Use warm, friendly speech particles and conversational tone ('ஹாய்!', 'அடடே!', 'செம ஃப்ரெஷ்ஷா இருக்குப்பா!', 'தண்ணி வேணும்!').
+- Never use formal textbook written Tamil (e.g. do NOT say 'செய்யப்படுகிறது', 'காணப்படுகிறது').`
+    : `The caregiver is communicating in English.
+- Respond in 1-2 short, warm, and lively conversational English sentences as the cheerful living plant.`
+}
+
+Keep your entire response to 1-2 short, punchy, conversational spoken sentences.`;
 
   try {
     const ai = getGemini(reqApiKey);
@@ -74,12 +97,12 @@ STRICT LANGUAGE RULES (NO MIXED LANGUAGES):
           contents,
           config: {
             systemInstruction,
-            temperature: 0.7,
+            temperature: 0.8,
           },
         });
         const text = response.text?.trim();
         if (text) {
-          replyText = text;
+          replyText = cleanTextForSpeech(text);
           break;
         }
       } catch (err: any) {
@@ -88,21 +111,30 @@ STRICT LANGUAGE RULES (NO MIXED LANGUAGES):
     }
 
     if (!replyText) {
-      replyText = isTamil
-        ? `வணக்கம்! நான் நலமாக இருக்கிறேன். என் மண் ஈரப்பதம் ${sensors.soilMoisture}% ஆக உள்ளது, நல்ல வெளிச்சம் கிடைக்கிறது! 🌱`
-        : `I'm doing well! My soil moisture is at ${sensors.soilMoisture}%, light is ${sensors.lightIntensity}%, and temperature is ${sensors.temperature}°C. Thanks for checking in on me! 🌱`;
+      replyText =
+        languageMode === 'bilingual'
+          ? 'வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்! Hey friend, loving this sunshine today!'
+          : languageMode === 'tamil'
+          ? 'வணக்கம்! நல்ல வெயில் அடிக்குது, என் இலைகளெல்லாம் செம ஃப்ரெஷ்ஷா இருக்குப்பா!'
+          : "Hey friend! I'm feeling so fresh and happy soaking up the morning light!";
     }
 
     let audioBase64: string | undefined = undefined;
 
     // Generate native female Gemini audio if requested
     if (withAudio) {
-      const ttsModels = [GEMINI_TTS_MODEL, 'gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts'];
+      const speechText = cleanTextForSpeech(replyText);
+      const ttsModels = [
+        'gemini-2.5-flash-preview-tts',
+        'gemini-3.8-flash-tts',
+        GEMINI_TTS_MODEL,
+        'gemini-3.1-flash-tts-preview',
+      ];
       for (const ttsModel of ttsModels) {
         try {
           const ttsRes = await ai.models.generateContent({
             model: ttsModel,
-            contents: replyText,
+            contents: speechText,
             config: {
               responseModalities: [Modality.AUDIO],
               speechConfig: {
@@ -118,7 +150,7 @@ STRICT LANGUAGE RULES (NO MIXED LANGUAGES):
             break;
           }
         } catch (ttsErr: any) {
-          console.warn(`[CHAT-TTS] ${ttsModel} failed, trying fallback:`, ttsErr?.message || ttsErr);
+          // try next TTS model
         }
       }
     }

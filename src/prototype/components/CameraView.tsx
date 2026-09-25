@@ -107,7 +107,20 @@ export const CameraView: React.FC<CameraViewProps> = ({
         plantName: 'Golden Pothos',
       });
 
-      const spokenText = touchLanguage === 'ta' ? alertResult.tamilText : alertResult.englishText;
+      const spokenText =
+        touchLanguage === 'ta'
+          ? alertResult.tamilText
+          : touchLanguage === 'mixed'
+          ? `${alertResult.tamilText} / ${alertResult.englishText}`
+          : alertResult.englishText;
+
+      const speechToPlay =
+        touchLanguage === 'ta'
+          ? alertResult.tamilText
+          : touchLanguage === 'mixed'
+          ? `${alertResult.tamilText} ${alertResult.englishText}`
+          : alertResult.englishText;
+
       setPlantSpeech(spokenText);
 
       if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
@@ -119,7 +132,7 @@ export const CameraView: React.FC<CameraViewProps> = ({
       if (alertResult.audioBase64) {
         await playGeminiAudio(alertResult.audioBase64);
       } else {
-        speakTouchWarning(spokenText, touchLanguage);
+        speakTouchWarning(speechToPlay, touchLanguage);
       }
 
       // Record in timeline

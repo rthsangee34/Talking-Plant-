@@ -11,8 +11,9 @@
 
 import { useApiUsageStore } from '../../stores/plant/api-usage-store';
 import { useSettingsStore } from '../../stores/plant/settings-store';
+import { cleanTextForSpeech } from './text-speech-cleaner';
 
-export type TouchVoiceLanguage = 'en' | 'ta';
+export type TouchVoiceLanguage = 'en' | 'ta' | 'mixed';
 
 export const INITIAL_ENGLISH_WARNINGS: string[] = [
   "HEY! Hands off my leaves! I'm trying to grow here!",
@@ -33,32 +34,41 @@ export const INITIAL_ENGLISH_WARNINGS: string[] = [
 ];
 
 export const INITIAL_TAMIL_WARNINGS: string[] = [
-  "ஏய்! என் இலைகளை தொடாதீங்க! நான் இங்கே வளர முயற்சி செய்கிறேன்!",
-  "மீண்டும் தொடுகிறீங்களா?! நான் Touchscreen என்று நினைத்தீங்களா?",
-  "அட! என் இலைகளை விட்டுடுங்க! நான் Photosynthesis பண்ணிட்டு இருக்கேன்!",
-  "எச்சரிக்கை! என் இலைகள் Touchscreen கிடையாது!",
-  "மறுபடியும் தொடாதீங்க! எனக்கும் கொஞ்சம் அமைதி வேண்டும்!",
+  "ஏய்! கையை எடுங்கப்பா! கிச்சு கிச்சு மூட்டுது, நான் நிம்மதியா வளர வேண்டாமா?!",
+  "மறுபடியும் தொடுறீங்களா?! நான் என்ன டச் ஸ்க்ரீனா, கையை எடுங்கப்பா!",
+  "அட! என் இலைகளை விட்டுடுங்க! நான் போட்டோசிந்தசிஸ் பண்ணிட்டு இருக்கேன்!",
+  "ஐயோ! என் இலை ரொம்ப சாஃப்ட், டச் ஸ்க்ரீன் கிடையாதுப்பா!",
+  "மறுபடியும் தொடாதீங்க! எனக்கும் கொஞ்சம் அமைதி வேணும்!",
   "ஏய்! கையை எடுங்க! என் இலைகள் உங்களோட விளையாட்டுப் பொருள் இல்ல!",
-  "அடடே! என்னை தொந்தரவு செய்யாதீங்க, நான் வளர வேண்டாமா?!",
-  "கவனம்! என் பச்சை இலைகள் மிக மென்மையானவை, தொடாதீங்க!",
-  "நண்பரே, கண்ணால பாருங்க, கையால தொடாதீங்க!",
+  "அடடே! என்னை தொந்தரவு செய்யாதீங்கப்பா, நான் வளர வேண்டாமா?!",
+  "மெதுவா! என் இலைகள் ரொம்ப மென்மையானது, சும்மா சும்மா தொடாதீங்க!",
+  "நண்பரே, கண்ணால பாருங்க, கையால நோண்டாதீங்கப்பா!",
   "கொஞ்சம் தள்ளி நில்லுங்க! நான் சுவாசிக்க இடம் வேணும்!",
-  "ஐயோ! என் தண்டு நோகுது, கையை எடுங்க!",
-  "நான் ஒரு தாவரம், பொம்மை இல்ல! மெதுவா இருங்க!",
-  "பச்சை தாவரத்துக்கு கொஞ்சம் மரியாதை கொடுங்கப்பா!",
+  "ஐயோ! என் தண்டு வலிக்குது, கையை எடுங்க!",
+  "நான் ஒரு நிஜமான செடி, பொம்மை இல்ல! மெதுவா இருங்க!",
+  "பச்சை செடிக்கு கொஞ்சம் மரியாதை கொடுங்கப்பா!",
   "கையை கழுவினீங்களா? என் இலைகளுக்கு தொந்தரவு பிடிக்காது!",
-  "அச்சச்சோ! என் இடத்துக்குள்ள வராதீங்க, கையை எடுங்க!",
+  "அச்சச்சோ! கையை எடுங்கப்பா, கிச்சு கிச்சு தாங்க முடியல!",
+];
+
+export const INITIAL_BILINGUAL_WARNINGS: string[] = [
+  "அட கையை எடுங்கப்பா! Hey friend, hands off my leaves, I'm trying to grow here!",
+  "மறுபடியும் தொடுறீங்களா?! Bro, do I look like a touchscreen to you? Stop touching me!",
+  "ஐயோ கிச்சு கிச்சு மூட்டுது! Whoa, that tickles, leave my foliage alone!",
+  "அடடே என்னை விட்டுடுங்க! Please stop touching me, I am trying to photosynthesize!",
+  "மெதுவா, என் இலை வலிக்குது! Ouch, watch the fresh leaves, human!",
 ];
 
 // Runtime dynamic phrase pools
 const dynamicEnglishPool: string[] = [...INITIAL_ENGLISH_WARNINGS];
 const dynamicTamilPool: string[] = [...INITIAL_TAMIL_WARNINGS];
+const dynamicBilingualPool: string[] = [...INITIAL_BILINGUAL_WARNINGS];
 
 /**
  * Returns a random warning phrase in the requested language.
  */
-export function getRandomWarningPhrase(lang: TouchVoiceLanguage = 'en'): string {
-  const pool = lang === 'ta' ? dynamicTamilPool : dynamicEnglishPool;
+export function getRandomWarningPhrase(lang: TouchVoiceLanguage = 'mixed'): string {
+  const pool = lang === 'ta' ? dynamicTamilPool : lang === 'mixed' ? dynamicBilingualPool : dynamicEnglishPool;
   const idx = Math.floor(Math.random() * pool.length);
   return pool[idx];
 }
@@ -66,18 +76,18 @@ export function getRandomWarningPhrase(lang: TouchVoiceLanguage = 'en'): string 
 /**
  * Get all available phrases in the specified language pool.
  */
-export function getWarningPhrasesPool(lang: TouchVoiceLanguage = 'en'): string[] {
-  return lang === 'ta' ? [...dynamicTamilPool] : [...dynamicEnglishPool];
+export function getWarningPhrasesPool(lang: TouchVoiceLanguage = 'mixed'): string[] {
+  return lang === 'ta' ? [...dynamicTamilPool] : lang === 'mixed' ? [...dynamicBilingualPool] : [...dynamicEnglishPool];
 }
 
 /**
  * Add a newly generated phrase to the pool if not already present.
  */
-export function addWarningPhrase(phrase: string, lang: TouchVoiceLanguage = 'en'): void {
+export function addWarningPhrase(phrase: string, lang: TouchVoiceLanguage = 'mixed'): void {
   const cleaned = phrase.trim();
   if (!cleaned) return;
 
-  const pool = lang === 'ta' ? dynamicTamilPool : dynamicEnglishPool;
+  const pool = lang === 'ta' ? dynamicTamilPool : lang === 'mixed' ? dynamicBilingualPool : dynamicEnglishPool;
   if (!pool.includes(cleaned)) {
     pool.push(cleaned);
   }
@@ -366,25 +376,42 @@ export function speakTouchWarning(
           window.speechSynthesis.resume();
         }
 
-        const utterance = new SpeechSynthesisUtterance(phrase);
+        const cleanedPhrase = cleanTextForSpeech(phrase);
+        if (!cleanedPhrase) return;
+
+        const utterance = new SpeechSynthesisUtterance(cleanedPhrase);
         // Anchor to global window to avoid Chrome garbage-collection bug
         (window as unknown as { __activePlantUtterance?: SpeechSynthesisUtterance }).__activePlantUtterance = utterance;
 
-        utterance.pitch = options?.pitch ?? 1.2; // Lively, warm female plant pitch
-        utterance.rate = options?.rate ?? 1.0;   // Natural conversational cadence
-        utterance.lang = lang === 'ta' ? 'ta-IN' : 'en-US';
+        utterance.pitch = options?.pitch ?? 1.15; // Lively, warm plant pitch
+        utterance.rate = options?.rate ?? 1.05;   // Conversational cadence, not slow reading
 
+        const hasTamilChars = /[\u0B80-\u0BFF]/.test(cleanedPhrase);
         const voices = getAllVoices();
-        const chosenVoice = getFemaleVoice(voices, lang);
-        if (chosenVoice) {
-          utterance.voice = chosenVoice;
-        } else if (lang === 'ta') {
-          // Windows Chrome has no Tamil voices installed by default.
-          // Fall back to female English voice so user hears alert rather than silence.
-          const enVoice = getFemaleVoice(voices, 'en');
+        const tamilVoice = getFemaleVoice(voices, 'ta');
+        const enVoice = getFemaleVoice(voices, 'en');
+
+        if (lang === 'ta' || (lang === 'mixed' && hasTamilChars)) {
+          if (tamilVoice) {
+            utterance.voice = tamilVoice;
+            utterance.lang = 'ta-IN';
+          } else {
+            // No Tamil SAPI voice installed on this machine (common on Windows Chrome)
+            // If mixed, extract the English sentence so it speaks naturally rather than reading Tamil phonetically
+            const englishPart = cleanedPhrase.replace(/[\u0B80-\u0BFF]+[^\w]*/g, '').trim();
+            if (englishPart && enVoice) {
+              utterance.text = englishPart;
+              utterance.voice = enVoice;
+              utterance.lang = enVoice.lang || 'en-US';
+            } else if (enVoice) {
+              utterance.voice = enVoice;
+              utterance.lang = enVoice.lang || 'en-US';
+            }
+          }
+        } else {
+          utterance.lang = 'en-US';
           if (enVoice) {
             utterance.voice = enVoice;
-            utterance.lang = enVoice.lang || 'en-US';
           }
         }
 
@@ -455,7 +482,7 @@ export function getClientFallbackAlert(
 ): ProtectionAlertResult {
   if (touchType === 'continuous-3s') {
     return {
-      tamilText: 'கையை விலக்குங்கள்! என் இலைகளை விட்டுடுங்க! நான் Photosynthesis பண்ணிட்டு இருக்கேன்!',
+      tamilText: 'அட கையை எடுங்கப்பா! கையை விலக்குங்கள், என் இலைகளை விட்டுடுங்க, நான் போட்டோசிந்தசிஸ் பண்ணிட்டு இருக்கேன்!',
       englishText: 'Remove your hands! Bro, stop touching me, I\'m trying to photosynthesize!',
       escalationLevel: 3,
       tone: 'distressed',
@@ -465,7 +492,7 @@ export function getClientFallbackAlert(
 
   if (touchType === 'continuous-6s') {
     return {
-      tamilText: 'எச்சரிக்கை! என் இலை நசுங்குகிறது, Touchscreen கிடையாது! உடனடியா கையை எடுங்க!',
+      tamilText: 'ஐயோ நிறுத்துங்கள்! என் இலை நசுங்குகிறது, நான் என்ன டச் ஸ்க்ரீனா?! உடனடியா கையை எடுங்க!',
       englishText: 'WARNING! My leaves are being crushed and are not a touchscreen! Hands off immediately!',
       escalationLevel: 4,
       tone: 'alarmed',
@@ -476,7 +503,7 @@ export function getClientFallbackAlert(
   switch (level) {
     case 1:
       return {
-        tamilText: 'அட! ஏய்! என் இலைகளை தொடாதீங்க! நான் இங்கே வளர முயற்சி செய்கிறேன்!',
+        tamilText: 'அட! ஏய்! கையை எடுங்கப்பா, கிச்சு கிச்சு மூட்டுது! நான் இங்கே நிம்மதியா வளர வேண்டாமா?!',
         englishText: 'HEY! That tickles, but hands off my leaves! I\'m trying to grow here!',
         escalationLevel: 1,
         tone: 'surprised',
@@ -484,7 +511,7 @@ export function getClientFallbackAlert(
       };
     case 2:
       return {
-        tamilText: 'மீண்டும் தொடுகிறீங்களா?! என் இலைகள் மென்மையானவை, Touchscreen என்று நினைத்தீங்களா?',
+        tamilText: 'மறுபடியும் தொடுறீங்களா?! என் இலைகள் ரொம்ப மென்மையானவை, என்ன டச் ஸ்க்ரீன்னு நினைச்சீங்களா?!',
         englishText: 'Again?! My leaves are delicate and not a touchscreen, leave them alone!',
         escalationLevel: 2,
         tone: 'gentle',
@@ -492,7 +519,7 @@ export function getClientFallbackAlert(
       };
     case 3:
       return {
-        tamilText: 'அட! தயவுசெய்து என்னை தொடாதீர்கள்! என் இலைகளை விட்டுடுங்க, நான் Photosynthesis பண்ணிட்டு இருக்கேன்!',
+        tamilText: 'அடடே! என்னை தொந்தரவு செய்யாதீங்கப்பா! தயவுசெய்து என்னைத் தொடாதீர்கள்! தண்டு எல்லாம் நடுங்குது!',
         englishText: 'Bro, please stop touching me! My stems are shaking and I\'m trying to photosynthesize!',
         escalationLevel: 3,
         tone: 'firm',
@@ -500,7 +527,7 @@ export function getClientFallbackAlert(
       };
     case 4:
       return {
-        tamilText: 'எச்சரிக்கை! நிறுத்துங்கள்! என் இலைகள் Touchscreen கிடையாது!',
+        tamilText: 'ஐயோ! நிறுத்துங்கள்! என் இலைகள் டச் ஸ்க்ரீன் கிடையாது, உடனடியா கையை எடுங்க!',
         englishText: 'WARNING! Stop right now, my leaves are not a touchscreen!',
         escalationLevel: 4,
         tone: 'distressed',
@@ -509,7 +536,7 @@ export function getClientFallbackAlert(
     case 5:
     default:
       return {
-        tamilText: 'அவசர எச்சரிக்கை! மறுபடியும் தொடாதீங்க! உடனடியா கையை எடுங்க, எனக்கும் கொஞ்சம் அமைதி வேண்டும்!',
+        tamilText: 'அவசர எச்சரிக்கை! அப்பப்பா! மறுபடியும் மறுபடியும் தொடுறீங்க! கையை எடுங்கப்பா, உடனடியா விட்டுடுங்க!',
         englishText: 'Emergency! Seriously?! Remove your hands and leave my leaves alone!',
         escalationLevel: Math.max(5, level),
         tone: 'alarmed',

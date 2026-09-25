@@ -63,7 +63,7 @@ export interface AIProvider {
     apiKey: string,
     context: PlantSensorContext,
     history?: ChatMessageEntry[]
-  ): Promise<{ reply: string }>;
+  ): Promise<{ reply: string; audioBase64?: string }>;
   analyzePlant(
     input: AnalysisInput,
     apiKey: string

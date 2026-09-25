@@ -251,13 +251,21 @@ export const CameraPanel: React.FC<CameraPanelProps> = ({ onCapture, onMultiCapt
         previousMessage: lastWarningTextRef.current || undefined,
       });
 
-      let phraseToSpeak = currentLang === 'ta' ? alert.tamilText : alert.englishText;
+      let phraseToSpeak =
+        currentLang === 'ta'
+          ? alert.tamilText
+          : currentLang === 'mixed'
+          ? `${alert.tamilText} ${alert.englishText}`
+          : alert.englishText;
 
       // If in critical condition and using offline fallback, make phrase moisture-aware
       if (alert.source === 'fallback' && healthState.status === 'CRITICAL') {
-        phraseToSpeak = currentLang === 'ta'
-          ? 'ஐயோ! என் மண்ணில் கொஞ்சம் கூட ஈரம் இல்ல, தண்ணி ஊத்தாம என்ன தொடாதீங்க! 😤🌱'
-          : 'Ouch! Don\'t poke me right now, my soil is bone dry! Go get some water first! 😤🌱';
+        phraseToSpeak =
+          currentLang === 'ta'
+            ? 'ஐயோ! என் மண்ணில் கொஞ்சம் கூட ஈரம் இல்ல, தண்ணி ஊத்தாம என்னைத் தொடாதீங்கப்பா!'
+            : currentLang === 'mixed'
+            ? 'ஐயோ! என் மண்ணில் ஈரம் இல்ல, தண்ணி ஊத்தாம என்னைத் தொடாதீங்கப்பா! Ouch, my soil is bone dry, please water me first!'
+            : "Ouch! Don't touch me right now, my soil is bone dry! Please water me first!";
       }
 
       lastWarningTextRef.current = phraseToSpeak;

@@ -4,6 +4,7 @@ import { useSensorsStore } from '../../stores/plant/sensors-store';
 import { useApiUsageStore } from '../../stores/plant/api-usage-store';
 import { defaultAIProvider } from '../../services/ai/gemini-provider';
 import { getFemaleVoice, getAllVoices, playGeminiAudio } from './warning-voice-system';
+import { cleanTextForSpeech } from './text-speech-cleaner';
 
 export interface LiveConnectionCallbacks {
   onStatusChange?: (
@@ -365,17 +366,46 @@ export class GeminiLiveConnection {
   }
 
   /**
-   * Call Gemini TTS directly from the browser to generate native audio.
-   * Supports Tamil and English with the Aoede female voice.
+   * Call Gemini TTS to generate native 24kHz audio.
+   * Prioritizes the backend server /api/tts endpoint (powered by @google/genai),
+   * with fallback to client-side REST call.
    * Returns base64 PCM16 24kHz audio data, or null on failure.
    */
   private async generateGeminiTTS(text: string, apiKey: string): Promise<string | null> {
-    if (!text || !apiKey) return null;
+    const cleaned = cleanTextForSpeech(text);
+    if (!cleaned) return null;
 
+    // 1. Try backend server /api/tts endpoint first
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'X-Gemini-API-Key': apiKey } : {}),
+        },
+        body: JSON.stringify({
+          text: cleaned,
+          apiKey,
+          voice: 'Aoede',
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.audio) {
+          console.log(`[GeminiLive] 🎤 TTS generated via server /api/tts (${cleaned.length} chars)`);
+          return data.audio;
+        }
+      }
+    } catch {
+      // Backend /api/tts unavailable, proceed to client fallback
+    }
+
+    // 2. Direct client fallback using official preview TTS models
     const ttsModels = [
+      'gemini-2.5-flash-preview-tts',
       'gemini-3.8-flash-tts',
       'gemini-3.1-flash-tts-preview',
-      'gemini-2.5-flash-preview-tts',
     ];
 
     for (const model of ttsModels) {
@@ -385,7 +415,7 @@ export class GeminiLiveConnection {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{ parts: [{ text }] }],
+            contents: [{ parts: [{ text: cleaned }] }],
             generationConfig: {
               responseModalities: ['AUDIO'],
               speechConfig: {
@@ -404,7 +434,7 @@ export class GeminiLiveConnection {
           (p: any) => p.inlineData?.mimeType?.startsWith('audio/')
         );
         if (audioPart?.inlineData?.data) {
-          console.log(`[GeminiLive] 🎤 TTS generated via ${model} (${text.length} chars)`);
+          console.log(`[GeminiLive] 🎤 TTS generated via direct client ${model} (${cleaned.length} chars)`);
           return audioPart.inlineData.data;
         }
       } catch {
@@ -422,6 +452,7 @@ export class GeminiLiveConnection {
       this.recognition?.stop();
     } catch {}
 
+    const prefLang = useSettingsStore.getState().preferredLanguage || 'mixed';
     const userLang = detectSpokenLanguage(userTranscript);
     const isTamilInput = userLang === 'ta';
     this.callbacks.onTranscript?.(userTranscript, 'user', userLang);
@@ -452,7 +483,7 @@ export class GeminiLiveConnection {
         humidity: humidity,
       };
 
-      // Call chat() with the correct positional signature: (message, apiKey, context, history)
+      // Call chat() with context & history
       let replyText: string;
       try {
         const response = await defaultAIProvider.chat(userTranscript, apiKey, sensorContext, []);
@@ -463,43 +494,65 @@ export class GeminiLiveConnection {
 
       // Fallback if chat returned empty
       if (!replyText) {
-        replyText = isTamilInput
-          ? 'வணக்கம்! நான் உங்கள் செடி. என் இலைகள் நன்றாக இருக்கின்றன, நல்ல வெளிச்சம் கிடைக்குது! 🌱'
-          : "I'm doing great! My leaves are soaking up the light! 🌱";
-      }
-
-      const replyLang = detectSpokenLanguage(replyText);
-      const isTamilReply = replyLang === 'ta';
-      this.callbacks.onTranscript?.(replyText, 'plant', replyLang);
-
-      // Strategy 1: Use Gemini TTS for native Tamil+English audio (best quality)
-      const keyForTTS = apiKey || import.meta.env.VITE_GEMINI_API_KEY || '';
-      if (keyForTTS) {
-        const audioBase64 = await this.generateGeminiTTS(replyText, keyForTTS);
-        if (audioBase64) {
-          const played = await playGeminiAudio(audioBase64);
-          if (played) {
-            // Estimate audio duration from PCM16 data: bytes / 2 samples / 24000 Hz * 1000 ms
-            const binaryLen = Math.ceil(audioBase64.length * 3 / 4);
-            const durationMs = Math.max(2000, (binaryLen / 2 / 24000) * 1000);
-            setTimeout(resumeListening, durationMs);
-            return;
-          }
+        if (prefLang === 'mixed' || (isTamilInput && /[a-zA-Z]/.test(userTranscript))) {
+          replyText = 'வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்! Hey there, loving this sunshine today!';
+        } else if (prefLang === 'ta' || isTamilInput) {
+          replyText = 'வணக்கம்! நல்ல வெயில் அடிக்குது, என் இலைகளெல்லாம் செம ஃப்ரெஷ்ஷா இருக்குப்பா!';
+        } else {
+          replyText = "I'm doing great! My leaves are soaking up the light and my roots feel good!";
         }
       }
 
-      // Strategy 2: Fallback to browser SpeechSynthesis
+      const cleanedReply = cleanTextForSpeech(replyText);
+      const replyLang = detectSpokenLanguage(cleanedReply);
+      this.callbacks.onTranscript?.(cleanedReply, 'plant', replyLang);
+
+      // Strategy 1: Use Gemini TTS for native 24kHz female voice audio (best quality, speaks Tamil & English flawlessly)
+      const keyForTTS = apiKey || import.meta.env.VITE_GEMINI_API_KEY || '';
+      const audioBase64 = await this.generateGeminiTTS(cleanedReply, keyForTTS);
+      if (audioBase64) {
+        const played = await playGeminiAudio(audioBase64);
+        if (played) {
+          const binaryLen = Math.ceil((audioBase64.length * 3) / 4);
+          const durationMs = Math.max(2000, (binaryLen / 2 / 24000) * 1000);
+          setTimeout(resumeListening, durationMs);
+          return;
+        }
+      }
+
+      // Strategy 2: Fallback to browser SpeechSynthesis if Gemini TTS was unreachable
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(replyText);
-        utterance.lang = isTamilReply ? 'ta-IN' : 'en-US';
-        utterance.pitch = 1.2;
-        utterance.rate = 1.0;
+        const utterance = new SpeechSynthesisUtterance(cleanedReply);
+        utterance.pitch = 1.15;
+        utterance.rate = 1.05;
 
+        const hasTamilChars = /[\u0B80-\u0BFF]/.test(cleanedReply);
         const voices = getAllVoices();
-        const femaleVoice = getFemaleVoice(voices, isTamilReply ? 'ta' : 'en');
-        if (femaleVoice) {
-          utterance.voice = femaleVoice;
+        const tamilVoice = getFemaleVoice(voices, 'ta');
+        const enVoice = getFemaleVoice(voices, 'en');
+
+        if (hasTamilChars) {
+          if (tamilVoice) {
+            utterance.voice = tamilVoice;
+            utterance.lang = 'ta-IN';
+          } else {
+            // Windows Chrome lacks native Tamil voices; speak the English portion if bilingual
+            const englishPart = cleanedReply.replace(/[\u0B80-\u0BFF]+[^\w]*/g, '').trim();
+            if (englishPart && enVoice) {
+              utterance.text = englishPart;
+              utterance.voice = enVoice;
+              utterance.lang = enVoice.lang || 'en-US';
+            } else if (enVoice) {
+              utterance.voice = enVoice;
+              utterance.lang = enVoice.lang || 'en-US';
+            }
+          }
+        } else {
+          utterance.lang = 'en-US';
+          if (enVoice) {
+            utterance.voice = enVoice;
+          }
         }
 
         utterance.onend = resumeListening;

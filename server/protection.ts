@@ -1,14 +1,15 @@
 import { Request, Response } from 'express';
 import { Type } from '@google/genai';
-import { getGemini, ensureApiKey, GEMINI_VISION_MODEL, GEMINI_LIVE_VOICE } from './gemini';
+import { getGemini, ensureApiKey, GEMINI_VISION_MODEL, GEMINI_LIVE_VOICE, GEMINI_TTS_MODEL } from './gemini';
 import { PLANT_PROTECTION_ALERT_SYSTEM_PROMPT } from '../src/lib/plant/prompts';
 import { logServerError, logServerEvent } from '../src/lib/api/response-logging';
+import { cleanTextForSpeech } from '../src/lib/plant/text-speech-cleaner';
 
 export interface ProtectionAlertRequestBody {
   escalationLevel?: number; // 1 to 5
   touchType?: 'initial' | 'continuous-3s' | 'continuous-6s';
   touchCount?: number;
-  language?: 'en' | 'ta';
+  language?: 'en' | 'ta' | 'mixed';
   plantName?: string;
   contextSummary?: string;
   previousMessage?: string;
@@ -30,7 +31,7 @@ const audioCache = new Map<string, string>();
 /**
  * Robust botanical fallbacks for all escalation stages.
  * Used if Gemini is unreachable or experiencing quota limits.
- * Uses angry + humorous plant personality lines suitable for school projects.
+ * Uses lively, conversational spoken Tamil (இயல்பான பேச்சுத் தமிழ்) and playful English.
  */
 function getFallbackProtectionAlert(
   level: number,
@@ -38,7 +39,7 @@ function getFallbackProtectionAlert(
 ): { tamilText: string; englishText: string; escalationLevel: number; tone: string } {
   if (touchType === 'continuous-3s') {
     return {
-      tamilText: 'கையை விலக்குங்கள்! என் இலைகளை விட்டுடுங்க! நான் Photosynthesis பண்ணிட்டு இருக்கேன்!',
+      tamilText: 'அட கையை எடுங்கப்பா! கையை விலக்குங்கள், என் இலைகளை விட்டுடுங்க, நான் போட்டோசிந்தசிஸ் பண்ணிட்டு இருக்கேன்!',
       englishText: 'Remove your hands! Bro, stop touching me, I\'m trying to photosynthesize!',
       escalationLevel: 3,
       tone: 'distressed',
@@ -47,7 +48,7 @@ function getFallbackProtectionAlert(
 
   if (touchType === 'continuous-6s') {
     return {
-      tamilText: 'எச்சரிக்கை! என் இலை நசுங்குகிறது, Touchscreen கிடையாது! உடனடியா கையை எடுங்க!',
+      tamilText: 'ஐயோ நிறுத்துங்கள்! என் இலை நசுங்குகிறது, நான் என்ன டச் ஸ்க்ரீனா?! உடனடியா கையை எடுங்க!',
       englishText: 'WARNING! My leaves are being crushed and are not a touchscreen! Hands off immediately!',
       escalationLevel: 4,
       tone: 'alarmed',
@@ -57,28 +58,28 @@ function getFallbackProtectionAlert(
   switch (level) {
     case 1:
       return {
-        tamilText: 'அட! ஏய்! என் இலைகளை தொடாதீங்க! நான் இங்கே வளர முயற்சி செய்கிறேன்!',
+        tamilText: 'அட! ஏய்! கையை எடுங்கப்பா, கிச்சு கிச்சு மூட்டுது! நான் இங்கே நிம்மதியா வளர வேண்டாமா?!',
         englishText: 'HEY! That tickles, but hands off my leaves! I\'m trying to grow here!',
         escalationLevel: 1,
         tone: 'surprised',
       };
     case 2:
       return {
-        tamilText: 'மீண்டும் தொடுகிறீங்களா?! என் இலைகள் மென்மையானவை, Touchscreen என்று நினைத்தீங்களா?',
+        tamilText: 'மறுபடியும் தொடுறீங்களா?! என் இலை ரொம்ப சாஃப்ட், என்ன டச் ஸ்க்ரீன்னு நினைச்சீங்களா?!',
         englishText: 'Again?! My leaves are delicate and not a touchscreen, leave them alone!',
         escalationLevel: 2,
         tone: 'gentle',
       };
     case 3:
       return {
-        tamilText: 'அட! தயவுசெய்து என்னை தொடாதீர்கள்! என் இலைகளை விட்டுடுங்க, நான் Photosynthesis பண்ணிட்டு இருக்கேன்!',
+        tamilText: 'அடடே! என்னை தொந்தரவு செய்யாதீங்கப்பா! தண்டு எல்லாம் நடுங்குது, நான் போட்டோசிந்தசிஸ் பண்ணிட்டு இருக்கேன்!',
         englishText: 'Bro, please stop touching me! My stems are shaking and I\'m trying to photosynthesize!',
         escalationLevel: 3,
         tone: 'firm',
       };
     case 4:
       return {
-        tamilText: 'எச்சரிக்கை! நிறுத்துங்கள்! என் இலைகள் Touchscreen கிடையாது!',
+        tamilText: 'ஐயோ! நிறுத்துங்க! என் இலைகள் டச் ஸ்க்ரீன் கிடையாது, உடனடியா கையை எடுங்க!',
         englishText: 'WARNING! Stop right now, my leaves are not a touchscreen!',
         escalationLevel: 4,
         tone: 'distressed',
@@ -86,7 +87,7 @@ function getFallbackProtectionAlert(
     case 5:
     default:
       return {
-        tamilText: 'அவசர எச்சரிக்கை! மறுபடியும் தொடாதீங்க! உடனடியா கையை எடுங்க, எனக்கும் கொஞ்சம் அமைதி வேண்டும்!',
+        tamilText: 'அவசர எச்சரிக்கை! அப்பப்பா! மறுபடியும் மறுபடியும் தொடுறீங்க! கையை எடுங்கப்பா, எனக்கும் கொஞ்சம் நிம்மதி வேணும்!',
         englishText: 'Emergency! Seriously?! Remove your hands and leave my leaves alone!',
         escalationLevel: Math.max(5, level),
         tone: 'alarmed',
@@ -95,22 +96,28 @@ function getFallbackProtectionAlert(
 }
 
 /**
- * Synthesizes speech using Gemini's native voice model (Zephyr voice).
- * Supports both Sri Lankan Tamil and English text.
+ * Synthesizes speech using Gemini's native voice model (Aoede voice).
+ * Supports both Sri Lankan Tamil and English text, plus Bilingual.
  */
 async function synthesizeGeminiVoice(
   ai: ReturnType<typeof getGemini>,
   text: string
 ): Promise<string | undefined> {
-  const cacheKey = text.trim();
+  const cleaned = cleanTextForSpeech(text);
+  if (!cleaned) return undefined;
+
+  const cacheKey = cleaned.trim();
   if (audioCache.has(cacheKey)) {
     return audioCache.get(cacheKey);
   }
 
+  const primaryModel = 'gemini-2.5-flash-preview-tts';
+  const fallbackModel = GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts';
+
   try {
     const ttsRes = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-preview-tts',
-      contents: { parts: [{ text }] },
+      model: primaryModel,
+      contents: { parts: [{ text: cleaned }] },
       config: {
         responseModalities: ['AUDIO'],
         speechConfig: {
@@ -126,7 +133,28 @@ async function synthesizeGeminiVoice(
       audioCache.set(cacheKey, data);
       return data;
     }
+    return undefined;
   } catch (err) {
+    try {
+      const ttsRes = await ai.models.generateContent({
+        model: fallbackModel,
+        contents: { parts: [{ text: cleaned }] },
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: GEMINI_LIVE_VOICE || 'Aoede' },
+            },
+          },
+        },
+      });
+
+      const data = ttsRes.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (data) {
+        audioCache.set(cacheKey, data);
+        return data;
+      }
+    } catch {}
     logServerError('protection-tts', err);
   }
   return undefined;
@@ -162,24 +190,22 @@ export async function handleProtectionAlertRequest(req: Request, res: Response):
     const ai = getGemini(reqApiKey);
 
     const promptText = `
-You are the voice of a plant protection system called Plant Talk.
-A person has just touched the plant.
+You are the voice of a living houseplant defending your leaves in a system called Plant Talk.
+A person has just touched your plant leaves.
 Consecutive Touch Number: ${touchCount} (Escalation Level: ${normalizedLevel} of 5)
 Plant: ${plantName}
 ${contextSummary ? `Context: ${contextSummary}` : ''}
 
-Generate ONE short warning message in BOTH Natural Tamil and English as if the plant itself is speaking.
+Generate ONE short warning message in BOTH Natural Spoken Tamil and Spoken English.
 
-PERSONALITY:
-- 😡 Angry but humorous: Personally annoyed that someone touched your leaves, but funny and playful.
-- 🌱 Plant-like: Mention leaves, plants, growing, photosynthesis, or touching when appropriate.
-- Sarcastic humor welcome (e.g. "Do I look like a touchscreen to you?").
-- Family-friendly and suitable for a school technology project: NO profanity, NO threats, NO insults.
-${previousMessage ? `- IMPORTANT: Generate a different message and avoid repeating the previous message: "${previousMessage}".` : '- Generate a fresh, unique message for this touch.'}
-
-RULES:
-- English: Maximum 1–2 short sentences.
-- Tamil: 1 அல்லது 2 குறுகிய வாக்கியங்கள். இயல்பான, எளிதில் புரியும் தமிழ், விளையாட்டுத்தனமான கோபம்.
+SPEAKING STYLE (CRITICAL - SPEAK, DO NOT READ):
+- You are SPEAKING OUT LOUD to the human touching you, NOT reading an announcement or a textbook.
+- 😡 Annoyed but playful: Express personal annoyance that someone touched your leaves, but witty, cute, and funny.
+- 🌱 Botanical: Mention delicate leaves, growing, photosynthesis, tickles, stomata, or personal green space.
+- Tamil: MUST be 100% natural, expressive spoken colloquial Tamil (இயல்பான பேச்சுத் தமிழ், e.g., 'அட கையை எடுங்கப்பா!', 'கிச்சு கிச்சு மூட்டுது!', 'டச் ஸ்க்ரீன்னு நினைச்சீங்களா?!'). NEVER use formal written Tamil like 'கையை விலக்குங்கள்' or 'செய்யப்படுகிறது'.
+- English: Casual spoken conversational English (e.g., 'Whoa, hands off my leaves, I am trying to photosynthesize!').
+- Strictly NO emojis, asterisks, brackets, bullet points, or markdown formatting in your response.
+${previousMessage ? `- IMPORTANT: Generate a fresh message different from previous: "${previousMessage}".` : '- Generate a fresh, unique message for this touch.'}
 `;
 
     const response = await ai.models.generateContent({
@@ -195,11 +221,11 @@ RULES:
           properties: {
             tamilText: {
               type: Type.STRING,
-              description: 'Natural spoken Tamil warning text (1-2 short, punchy sentences, angry but humorous)',
+              description: 'Natural spoken Tamil warning text (1-2 short, punchy sentences, colloquial spoken style)',
             },
             englishText: {
               type: Type.STRING,
-              description: 'English warning text matching tone and meaning (1-2 short sentences, angry but humorous)',
+              description: 'English warning text matching tone and meaning (1-2 short sentences, casual spoken style)',
             },
             escalationLevel: {
               type: Type.INTEGER,
@@ -224,8 +250,13 @@ RULES:
     const finalTamilText = parsed.tamilText || getFallbackProtectionAlert(normalizedLevel, touchType).tamilText;
     const finalEnglishText = parsed.englishText || getFallbackProtectionAlert(normalizedLevel, touchType).englishText;
 
-    // Synthesize Gemini Voice Audio for the chosen language
-    const textToSpeak = language === 'ta' ? finalTamilText : finalEnglishText;
+    // Synthesize Gemini Voice Audio: in mixed mode, speak Tamil then English seamlessly
+    const textToSpeak =
+      language === 'ta'
+        ? finalTamilText
+        : language === 'mixed'
+        ? `${finalTamilText} ${finalEnglishText}`
+        : finalEnglishText;
     const audioBase64 = await synthesizeGeminiVoice(ai, textToSpeak);
 
     const latencyMs = Date.now() - startTime;
@@ -249,7 +280,12 @@ RULES:
     let audioBase64: string | undefined;
     try {
       const ai = getGemini(reqApiKey);
-      const textToSpeak = language === 'ta' ? fallback.tamilText : fallback.englishText;
+      const textToSpeak =
+        language === 'ta'
+          ? fallback.tamilText
+          : language === 'mixed'
+          ? `${fallback.tamilText} ${fallback.englishText}`
+          : fallback.englishText;
       audioBase64 = await synthesizeGeminiVoice(ai, textToSpeak);
     } catch {}
 

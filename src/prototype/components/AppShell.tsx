@@ -30,9 +30,17 @@ import { PhotosynthesisStatusCard } from '../../components/dashboard/photosynthe
 import { HealthTrendsPanel } from '../../components/plant-monitoring/health-trends-panel';
 
 export const AppShell: React.FC = () => {
-  // Navigation & Language state
+  // Navigation & Language state (defaults to bilingual Tamil + English)
   const [activeSection, setActiveSection] = useState<NavSection>('overview');
-  const [language, setLanguage] = useState<Language>('en');
+  const [language, setLanguage] = useState<Language>(() => {
+    return useSettingsStore.getState().preferredLanguage || 'mixed';
+  });
+
+  const handleLanguageChange = useCallback((newLang: Language) => {
+    setLanguage(newLang);
+    useSettingsStore.getState().setPreferredLanguage(newLang);
+    useCameraStore.getState().setTouchLanguage(newLang);
+  }, []);
 
   // Hero Camera State: false = PlantHero, true = CameraView
   const [cameraActive, setCameraActive] = useState<boolean>(false);
@@ -157,7 +165,7 @@ export const AppShell: React.FC = () => {
         {/* Top Header */}
         <Header
           language={language}
-          onLanguageChange={setLanguage}
+          onLanguageChange={handleLanguageChange}
           onOpenSettings={() => setSettingsOpen(true)}
         />
 
@@ -311,7 +319,7 @@ export const AppShell: React.FC = () => {
       <SettingsModal
         isOpen={settingsOpen}
         language={language}
-        onLanguageChange={setLanguage}
+        onLanguageChange={handleLanguageChange}
         onClose={() => setSettingsOpen(false)}
       />
     </div>

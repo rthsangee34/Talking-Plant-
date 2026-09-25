@@ -6,7 +6,7 @@ export type NavSection =
   | 'history' 
   | 'diagnostics';
 
-export type Language = 'en' | 'ta';
+export type Language = 'en' | 'ta' | 'mixed';
 
 export interface PlantMetrics {
   healthScore: number; // e.g. 85

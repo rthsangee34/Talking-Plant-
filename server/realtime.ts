@@ -35,6 +35,8 @@ export function handleLiveTokenRequest(req: Request, res: Response): void {
   });
 }
 
+import { cleanTextForSpeech } from '../src/lib/plant/text-speech-cleaner';
+
 /**
  * Synthesize native Gemini female voice audio (Aoede)
  * Returns base64 24kHz linear PCM audio
@@ -44,19 +46,22 @@ async function generateGeminiLiveAudio(
   apiKey?: string,
   voiceName: string = GEMINI_LIVE_VOICE
 ): Promise<string> {
+  const cleaned = cleanTextForSpeech(text);
+  if (!cleaned) throw new Error('No text to synthesize');
+
   const ai = getGemini(apiKey);
   const ttsModels = [
-    GEMINI_TTS_MODEL,
-    'gemini-3.8-flash-tts',
-    'gemini-3.1-flash-tts-preview',
     'gemini-2.5-flash-preview-tts',
+    'gemini-3.8-flash-tts',
+    GEMINI_TTS_MODEL,
+    'gemini-3.1-flash-tts-preview',
   ];
 
   for (const model of ttsModels) {
     try {
       const res = await ai.models.generateContent({
         model,
-        contents: text,
+        contents: cleaned,
         config: {
           responseModalities: [Modality.AUDIO],
           speechConfig: {
@@ -92,6 +97,10 @@ async function generateLivePlantReply(
   const temp = Math.round(s?.temperature ?? 26);
   const humidity = Math.round(s?.humidity ?? 62);
 
+  const hasTamil = /[\u0B80-\u0BFF]/.test(userText);
+  const hasTanglish = /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|irukanga|thanni|thanniya|thannir|panra|pandringa|inniku|iniku|enakku|ungalluku|ungalukku|romba|konjam|adade|nalla|seydi|sedhi|ilai|ilaigal|chedi|tamil|tamil-la|tamil-le|tamilil|pesu|pesunga|solla|sollunga|theriyuma|teriyuma|kuduthacha|venuma|pandra|vanga|ponga)\b/i.test(userText);
+  const asksBilingual = /\b(tamil and english|both|bilingual|tanglish|tamil english)\b/i.test(userText);
+
   const systemInstruction = `${PLANT_LIVE_SYSTEM_INSTRUCTION}
 
 REAL-TIME SENSORS RIGHT NOW:
@@ -100,17 +109,20 @@ REAL-TIME SENSORS RIGHT NOW:
 - Temperature: ${temp}°C
 - Humidity: ${humidity}%
 
-AUTOMATIC LANGUAGE & VOICE INTELLIGENCE RULES (STRICT SINGLE LANGUAGE - NO MIXED LANGUAGES):
-1. Detect whether the user is communicating in Tamil or English:
-   - When the user speaks Tamil, Tanglish, or mixes Tamil and English: Respond EXCLUSIVELY in fluent, natural conversational spoken Tamil (இயல்பான பேச்சுத் தமிழ்). Speak Tamil directly without translating through English or appending translations. Do NOT mix English words into your Tamil response.
-   - When the user speaks English: Respond EXCLUSIVELY in natural English. Do NOT mix Tamil words into your English response.
-   - Dynamic Language Switching: If the user changes language in the conversation, dynamically switch languages to match the user.
-   - CRITICAL: NEVER output mixed languages (code-mixing) in your response.
+CRITICAL VOICE & SPEAKING RULES (SPEAK, DO NOT READ):
+1. You are SPEAKING OUT LOUD to your caregiver. DO NOT sound like an announcer reading a weather report, news bulletin, or sensor diagnostic log.
+2. DO NOT read out numbers, percentages, bullet points, asterisks, brackets, or emojis! Speak conversationally about your feelings (e.g., "my soil is nice and moist", "this sunshine feels wonderful").
+3. BILINGUAL & LANGUAGE DELIVERY:
+${
+  asksBilingual || (hasTamil && /[a-zA-Z]/.test(userText))
+    ? `* Caregiver wants BILINGUAL (Tamil + English). Speak 1 lively sentence in natural spoken Tamil (இயல்பான பேச்சுத் தமிழ்), followed immediately by 1 friendly sentence in conversational English!
+  Example: "வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்ப்பா! Hey friend, loving this morning sunshine today!"`
+    : hasTamil || hasTanglish
+    ? `* Caregiver speaks Tamil or Tanglish. Respond 100% in natural, lively conversational spoken Tamil (இயல்பான பேச்சுத் தமிழ்: e.g. 'ஹாய்!', 'அடடே!', 'எப்படி இருக்கீங்க?', 'செம ஜாலியா இருக்கு!'). NEVER use formal written textbook Tamil.`
+    : `* Caregiver speaks English. Respond in 1-2 short, warm, lively conversational English sentences with plant personality.`
+}
 
-2. Tone & Delivery:
-   - Speak in 1-2 short, emotional, lively sentences as the living potted plant.
-   - Use warm Sri Lankan Tamil expressions ("எனக்கு...", "என் இலைகள்...", "ரொம்ப...", "கொஞ்சம்...", "அடடே...").
-   - This is real-time voice conversation. Prioritize short, natural spoken dialogue over long explanations.`;
+Keep entire response to 1-2 short, punchy, conversational spoken sentences.`;
 
   const chatModels = [
     GEMINI_CHAT_MODEL,
@@ -130,17 +142,19 @@ AUTOMATIC LANGUAGE & VOICE INTELLIGENCE RULES (STRICT SINGLE LANGUAGE - NO MIXED
         ],
         config: {
           systemInstruction,
-          temperature: 0.7,
+          temperature: 0.8,
         },
       });
       const text = res.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      if (text) return text;
+      if (text) return cleanTextForSpeech(text);
     } catch (err: any) {
       console.warn(`[LIVE-REPLY] Model ${model} failed, trying next:`, err?.message || err);
     }
   }
 
-  return 'வணக்கம்! நான் உங்கள் செடி. என் இலைகள் நன்றாக இருக்கின்றன, நல்ல வெளிச்சம் கிடைக்குது! 🌱';
+  return hasTamil || hasTanglish
+    ? 'வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்! Hey friend, loving this sunshine today!'
+    : "Hey friend! I'm feeling so fresh and happy soaking up the morning light!";
 }
 
 export function setupLiveWebSocketServer(server: Server): WebSocketServer {
@@ -209,17 +223,15 @@ REAL-TIME SENSORS RIGHT NOW:
 - Temperature: ${temp}°C
 - Humidity: ${humidity}%
 
-AUTOMATIC LANGUAGE & VOICE INTELLIGENCE RULES (STRICT SINGLE LANGUAGE - NO MIXED LANGUAGES):
-1. Detect whether the user is communicating in Tamil or English:
-   - When the user speaks Tamil, Tanglish, or mixes Tamil and English: Respond EXCLUSIVELY in fluent, natural conversational spoken Tamil (இயல்பான பேச்சுத் தமிழ்). Speak Tamil directly without translating through English or appending translations. Do NOT mix English words into your Tamil response.
-   - When the user speaks English: Respond EXCLUSIVELY in natural English. Do NOT mix Tamil words into your English response.
-   - Dynamic Language Switching: If the user changes language in the conversation, dynamically switch languages to match the user.
-   - CRITICAL: NEVER output mixed languages (code-mixing) in your response.
-
-2. Tone & Delivery:
-   - Speak in 1-2 short, emotional, lively sentences as the living potted plant.
-   - Use warm Sri Lankan Tamil expressions ("எனக்கு...", "என் இலைகள்...", "ரொம்ப...", "கொஞ்சம்...", "அடடே...").
-   - This is real-time voice conversation. Prioritize short, natural spoken dialogue over long explanations.`;
+CRITICAL VOICE & SPEAKING RULES (SPEAK, DO NOT READ):
+1. You are SPEAKING OUT LOUD to your caregiver in real-time voice, NOT reading a text, book, or weather bulletin.
+2. DO NOT read out numbers, percentages, bullet points, asterisks, brackets, or emojis! Speak conversationally about your feelings (e.g. "my roots are nice and hydrated", "loving this morning light").
+3. LANGUAGE & BILINGUAL INTELLIGENCE:
+   - When the caregiver speaks Tamil, Tanglish, or asks for Tamil and English: Respond warmly with 1 lively sentence in natural spoken Tamil (இயல்பான பேச்சுத் தமிழ்), followed immediately by 1 friendly sentence in conversational English (e.g., 'வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்ப்பா! Hey friend, loving this sunshine today!').
+   - If the caregiver communicates only in pure Tamil: Respond in 1-2 short, warm sentences of authentic spoken colloquial Tamil. Never use formal written textbook Tamil.
+   - If the caregiver communicates in English: Respond in 1-2 short, warm, lively conversational English sentences.
+4. Tone & Delivery:
+   - Speak in 1-2 short, punchy, conversational sentences with cute living plant personality.`;
 
     for (const modelToTry of liveCandidateModels) {
       try {

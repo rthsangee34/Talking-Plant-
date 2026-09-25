@@ -7,6 +7,9 @@ import {
   PlantSensorContext,
 } from './ai-provider';
 
+import { cleanTextForSpeech } from '../../lib/plant/text-speech-cleaner';
+import { useSettingsStore } from '../../stores/plant/settings-store';
+
 export class GeminiProvider implements AIProvider {
   readonly id = 'gemini';
   readonly name = 'Google Gemini';
@@ -137,8 +140,11 @@ export class GeminiProvider implements AIProvider {
     message: string,
     apiKey: string,
     context: PlantSensorContext,
-    history: ChatMessageEntry[] = []
-  ): Promise<{ reply: string }> {
+    history: ChatMessageEntry[] = [],
+    withAudio = true
+  ): Promise<{ reply: string; audioBase64?: string }> {
+    const prefLang = useSettingsStore.getState().preferredLanguage || 'mixed';
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
@@ -150,14 +156,18 @@ export class GeminiProvider implements AIProvider {
           message,
           sensors: context,
           history,
+          preferredLanguage: prefLang,
+          withAudio,
         }),
       });
 
       const contentType = res.headers.get('content-type') || '';
       if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
+        const cleaned = cleanTextForSpeech(data.reply || 'I hear you! My leaves are soaking up the light and my roots feel good.');
         return {
-          reply: data.reply || 'I hear you! My leaves are soaking up the light and my roots feel good.',
+          reply: cleaned,
+          audioBase64: data.audioBase64,
         };
       }
     } catch {
@@ -166,13 +176,20 @@ export class GeminiProvider implements AIProvider {
 
     const keyToUse = apiKey || import.meta.env.VITE_GEMINI_API_KEY || '';
     if (!keyToUse) {
-      const isTamil =
-        /[\u0B80-\u0BFF]/.test(message) ||
+      const hasTamil = /[\u0B80-\u0BFF]/.test(message) ||
         /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|thanni|panra|inniku|romba|tamil)\b/i.test(message);
+
+      if (prefLang === 'mixed' || (hasTamil && /[a-zA-Z]/.test(message))) {
+        return {
+          reply: 'வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்! Hey friend, loving this sunshine today!',
+        };
+      } else if (prefLang === 'ta' || hasTamil) {
+        return {
+          reply: 'வணக்கம்! நல்ல வெயில் அடிக்குது, என் இலைகளெல்லாம் செம ஃப்ரெஷ்ஷா இருக்குப்பா!',
+        };
+      }
       return {
-        reply: isTamil
-          ? `வணக்கம்! நான் உங்கள் செடி. என் இலைகள் நன்றாக இருக்கின்றன, மண் ஈரப்பதம் ${context.soilMoisture}% ஆக உள்ளது! 🌱`
-          : `Hello! I'm your plant. My leaves are doing great and my soil moisture is at ${context.soilMoisture}%! 🌱`,
+        reply: "Hey friend! My leaves are soaking up the light and my soil feels great!",
       };
     }
 
@@ -184,25 +201,37 @@ export class GeminiProvider implements AIProvider {
     apiKey: string,
     context: PlantSensorContext,
     history: ChatMessageEntry[] = []
-  ): Promise<{ reply: string }> {
-    const isTamil =
+  ): Promise<{ reply: string; audioBase64?: string }> {
+    const prefLang = useSettingsStore.getState().preferredLanguage || 'mixed';
+    const hasTamil =
       /[\u0B80-\u0BFF]/.test(message) ||
-      /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|irukanga|thanni|thanniya|thannir|panra|pandringa|inniku|iniku|enakku|ungalluku|ungalukku|romba|konjam|adade|nalla|seydi|sedhi|ilai|ilaigal|chedi|tamil|tamil-la|tamil-le|tamilil|pesu|pesunga|solla|sollunga|theriyuma|teriyuma|kuduthacha|venuma|pandra|vanga|ponga)\b/i.test(message) ||
-      /\b(speak in tamil|in tamil|talk in tamil|reply in tamil|tamil please)\b/i.test(message);
+      /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|irukanga|thanni|thanniya|thannir|panra|pandringa|inniku|iniku|enakku|ungalluku|ungalukku|romba|konjam|adade|nalla|seydi|sedhi|ilai|ilaigal|chedi|tamil|tamil-la|tamil-le|tamilil|pesu|pesunga|solla|sollunga|theriyuma|teriyuma|kuduthacha|venuma|pandra|vanga|ponga)\b/i.test(message);
+    const asksBilingual = /\b(tamil and english|both|bilingual|tanglish|tamil english)\b/i.test(message);
 
-    const prompt = `You are a friendly, caring, witty talking plant companion named Plant Talk.
-Current environmental sensors:
-- Soil Moisture: ${context.soilMoisture}%
-- Temperature: ${context.temperature}°C
-- Humidity: ${context.humidity}%
-- Light: ${context.lightIntensity}%
+    const isBilingual = prefLang === 'mixed' || asksBilingual || (hasTamil && /[a-zA-Z]/.test(message));
+    const isPureTamil = !isBilingual && (prefLang === 'ta' || hasTamil);
 
-STRICT LANGUAGE RULE (SINGLE LANGUAGE ONLY - NEVER USE MIXED LANGUAGES):
+    const prompt = `You are Plant Talk, a friendly, witty, caring talking plant companion speaking directly to your caregiver.
+
+CRITICAL VOICE & SPEAKING RULES (SPEAK, DO NOT READ):
+- You are SPEAKING OUT LOUD in real-time voice, NOT reading an essay, sensor sheet, or textbook.
+- Speak casually, warmly, and playfully as a living plant.
+- NEVER read sensor numbers, percentages, bullet points, brackets, asterisks, or emoji descriptions.
+- LANGUAGE REQUIREMENT:
 ${
-  isTamil
-    ? 'The user is communicating in Tamil. You MUST respond 100% in natural, fluent spoken Tamil (இயல்பான பேச்சுத் தமிழ்). Do NOT mix English words into your response. Do NOT use Tanglish. Do NOT provide English translations in parentheses. Speak in 1-2 short, warm sentences as the living potted plant.'
-    : 'The user is communicating in English. You MUST respond 100% in natural, fluent English. Do NOT mix Tamil words into your response. Speak in 1-2 short, warm sentences with cheerful plant personality.'
-}`;
+  isBilingual
+    ? `Caregiver wants BILINGUAL (Tamil + English).
+- Speak 1 lively sentence in natural spoken Tamil (இயல்பான பேச்சுத் தமிழ்), followed immediately by 1 friendly sentence in conversational English!
+- Example: "வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்ப்பா! Hey friend, loving this morning sunshine today!"`
+    : isPureTamil
+    ? `Caregiver communicates in Tamil.
+- Respond 100% in natural, lively conversational spoken Tamil (இயல்பான பேச்சுத் தமிழ்: e.g. 'ஹாய்!', 'அடடே!', 'எப்படி இருக்கீங்க?', 'செம ஜாலியா இருக்கு!').
+- NEVER use formal written textbook Tamil.`
+    : `Caregiver communicates in English.
+- Respond in 1-2 short, warm, lively conversational English sentences.`
+}
+
+Keep your entire response to 1-2 short, punchy spoken sentences. Do NOT output any markdown, asterisks, brackets, or emojis.`;
 
     const candidateModels = [
       'gemini-3.6-flash',
@@ -235,7 +264,7 @@ ${
           const data = await res.json();
           const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text;
           if (replyText) {
-            return { reply: replyText.trim() };
+            return { reply: cleanTextForSpeech(replyText.trim()) };
           }
         }
       } catch {
@@ -244,14 +273,19 @@ ${
     }
 
     // High availability fallback in plant character if Google servers temporarily spike
-    if (isTamil) {
+    if (isBilingual) {
       return {
-        reply: `வணக்கம்! என் இலைகள் சூரிய ஒளியை விரும்புகின்றன (ஈரப்பதம்: ${context.soilMoisture}%, வெப்பநிலை: ${context.temperature}°C). நீங்கள் என்னுடன் பேசியதில் மகிழ்ச்சி!`,
+        reply: 'வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்! Hey friend, loving this sunshine today!',
+      };
+    }
+    if (isPureTamil) {
+      return {
+        reply: 'வணக்கம்! நல்ல வெயில் அடிக்குது, என் இலைகளெல்லாம் செம ஃப்ரெஷ்ஷா இருக்குப்பா!',
       };
     }
 
     return {
-      reply: `Hello there! My leaves are soaking up the ambient light (${context.lightIntensity}%) and my soil moisture is at ${context.soilMoisture}%. It's so lovely chatting with you!`,
+      reply: "Hey friend! My leaves are soaking up the light and my roots feel good!",
     };
   }
 

@@ -51,7 +51,7 @@ interface CameraState {
   protectionEnabled: boolean;
   interactionCount: number;
   lastWhatsAppAlertAt: number | null;
-  touchLanguage: 'en' | 'ta';
+  touchLanguage: 'en' | 'ta' | 'mixed';
   debugModeEnabled: boolean;
   selectedTargetPlantId: string | null;
   activeWarningText: string | null;
@@ -91,7 +91,7 @@ interface CameraState {
   incrementInteraction: () => void;
   resetInteractionCount: () => void;
   setLastWhatsAppAlertAt: (timestamp: number) => void;
-  setTouchLanguage: (lang: 'en' | 'ta') => void;
+  setTouchLanguage: (lang: 'en' | 'ta' | 'mixed') => void;
   setDebugModeEnabled: (enabled: boolean) => void;
   setSelectedTargetPlantId: (id: string | null) => void;
   setActiveWarningText: (text: string | null) => void;
@@ -137,7 +137,7 @@ export const useCameraStore = create<CameraState>((set) => ({
   protectionEnabled: true,
   interactionCount: 0,
   lastWhatsAppAlertAt: null,
-  touchLanguage: 'ta',
+  touchLanguage: 'mixed',
   debugModeEnabled: true,
   selectedTargetPlantId: null,
   activeWarningText: null,

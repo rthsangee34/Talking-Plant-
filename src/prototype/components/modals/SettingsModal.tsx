@@ -80,17 +80,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Language Options */}
         <div className="flex flex-col gap-2 p-3 rounded-2xl bg-white/50 border border-white/70">
           <label className="text-xs font-bold text-emerald-950">Language / மொழி</label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <button
-              onClick={() => onLanguageChange('en')}
+              onClick={() => onLanguageChange('mixed')}
               className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                language === 'en'
+                language === 'mixed'
                   ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
                   : 'bg-white/70 text-emerald-950 border-white/80 hover:bg-white'
               }`}
             >
-              <span>English</span>
-              {language === 'en' && <Check className="w-3.5 h-3.5" />}
+              <span>தமிழ் & EN (Bilingual)</span>
+              {language === 'mixed' && <Check className="w-3.5 h-3.5" />}
             </button>
             <button
               onClick={() => onLanguageChange('ta')}
@@ -102,6 +102,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             >
               <span>தமிழ் (Tamil)</span>
               {language === 'ta' && <Check className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              onClick={() => onLanguageChange('en')}
+              className={`flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                language === 'en'
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                  : 'bg-white/70 text-emerald-950 border-white/80 hover:bg-white'
+              }`}
+            >
+              <span>English (EN)</span>
+              {language === 'en' && <Check className="w-3.5 h-3.5" />}
             </button>
           </div>
         </div>
