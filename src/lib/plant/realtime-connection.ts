@@ -75,10 +75,12 @@ export class GeminiLiveConnection {
       // 2. Establish WebSocket to backend Live proxy (with graceful Direct Client fallback)
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       let wsUrl = `${protocol}//${window.location.host}/api/live`;
-      const { apiKey } = useSettingsStore.getState();
-      if (apiKey) {
-        wsUrl += `?key=${encodeURIComponent(apiKey)}`;
-      }
+      const { apiKey, preferredLanguage } = useSettingsStore.getState();
+      const params = new URLSearchParams();
+      if (apiKey) params.set('key', apiKey);
+      if (preferredLanguage) params.set('lang', preferredLanguage);
+      const qs = params.toString();
+      if (qs) wsUrl += `?${qs}`;
 
       try {
         this.ws = new WebSocket(wsUrl);
@@ -95,16 +97,6 @@ export class GeminiLiveConnection {
           try {
             const msg = JSON.parse(event.data);
 
-            if (msg.audio) {
-              this.callbacks.onStatusChange?.('speaking');
-              this.playAudioChunk(msg.audio);
-            }
-
-            if (msg.interrupted) {
-              this.stopPlayback();
-              this.callbacks.onStatusChange?.('listening');
-            }
-
             if (msg.userTranscript) {
               const lang = detectSpokenLanguage(msg.userTranscript);
               this.callbacks.onTranscript?.(msg.userTranscript, 'user', lang);
@@ -113,6 +105,26 @@ export class GeminiLiveConnection {
             if (msg.plantTranscript) {
               const lang = detectSpokenLanguage(msg.plantTranscript);
               this.callbacks.onTranscript?.(msg.plantTranscript, 'plant', lang);
+            }
+
+            if (msg.audio) {
+              this.callbacks.onStatusChange?.('speaking');
+              this.playAudioChunk(msg.audio);
+            } else if (msg.audioFailed) {
+              if (msg.plantTranscript) {
+                this.fallbackSpeakText(msg.plantTranscript);
+              } else {
+                this.isProcessingSpeech = false;
+                this.callbacks.onStatusChange?.('listening');
+                this.resumeSpeechRecognition();
+              }
+            }
+
+            if (msg.interrupted) {
+              this.stopPlayback();
+              this.isProcessingSpeech = false;
+              this.callbacks.onStatusChange?.('listening');
+              this.resumeSpeechRecognition();
             }
 
             if (msg.toolCall) {
@@ -163,11 +175,14 @@ export class GeminiLiveConnection {
     }
   }
 
-  private startAudioProcessing(): void {
+  private async startAudioProcessing(): Promise<void> {
     if (!this.mediaStream) return;
 
     try {
       this.inputAudioCtx = new AudioContext({ sampleRate: 16000 });
+      if (this.inputAudioCtx.state === 'suspended') {
+        await this.inputAudioCtx.resume();
+      }
       this.sourceNode = this.inputAudioCtx.createMediaStreamSource(this.mediaStream);
       this.processor = this.inputAudioCtx.createScriptProcessor(2048, 1, 1);
 
@@ -180,9 +195,24 @@ export class GeminiLiveConnection {
       silenceGain.connect(this.inputAudioCtx.destination);
 
       this.processor.onaudioprocess = (e) => {
-        if (this.isMuted || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        if (this.isMuted) return;
 
         const float32Data = e.inputBuffer.getChannelData(0);
+
+        // Continuous barge-in energy detection: if user speaks into microphone while plant is speaking
+        if (this.activeSources.length > 0) {
+          let sumSquares = 0;
+          for (let i = 0; i < float32Data.length; i++) {
+            sumSquares += float32Data[i] * float32Data[i];
+          }
+          const rms = Math.sqrt(sumSquares / float32Data.length);
+          if (rms > 0.055) {
+            console.log('[GeminiLive] ⚡ User barge-in detected via microphone energy level:', rms.toFixed(4));
+            this.interrupt();
+          }
+        }
+
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
         const pcm16Data = this.convertFloat32ToPCM16(float32Data);
         const base64Audio = this.arrayBufferToBase64(pcm16Data);
 
@@ -198,6 +228,26 @@ export class GeminiLiveConnection {
     }
   }
 
+  private pauseSpeechRecognition(): void {
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch {}
+    }
+  }
+
+  private resumeSpeechRecognition(): void {
+    if (this.isRunning && !this.isMuted && this.activeSources.length === 0) {
+      setTimeout(() => {
+        if (this.isRunning && !this.isMuted && this.activeSources.length === 0) {
+          try {
+            this.recognition?.start();
+          } catch {}
+        }
+      }, 150);
+    }
+  }
+
   private startSpeechRecognition(): void {
     const SpeechRec =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -208,43 +258,87 @@ export class GeminiLiveConnection {
     }
 
     try {
+      if (this.recognition) {
+        try {
+          this.recognition.onend = null;
+          this.recognition.onerror = null;
+          this.recognition.onresult = null;
+          this.recognition.stop();
+        } catch {}
+        this.recognition = null;
+      }
+
       this.recognition = new SpeechRec();
       this.recognition.continuous = true;
-      this.recognition.interimResults = false;
+      this.recognition.interimResults = true;
       this.recognition.maxAlternatives = 1;
 
-      // Select language based on user preference (Section 8.8)
+      // Select language based on user preference
       const prefLang = useSettingsStore.getState().preferredLanguage;
       this.recognition.lang = prefLang === 'en' ? 'en-US' : 'ta-IN';
 
+      let speechDebounceTimer: any = null;
+      let lastFinalTranscript = '';
+
       this.recognition.onresult = (event: any) => {
-        if (!this.isRunning || this.isMuted || this.isProcessingSpeech) return;
+        if (!this.isRunning || this.isMuted) return;
         const results = event.results;
         if (!results || results.length === 0) return;
 
-        const lastResult = results[results.length - 1];
-        const transcript = lastResult?.[0]?.transcript?.trim();
+        // Barge-in: If user speaks while plant is speaking, interrupt plant audio immediately!
+        if (this.activeSources.length > 0) {
+          console.log('[GeminiLive] ⚡ User interrupted plant speaking via recognized speech!');
+          this.interrupt();
+        }
 
-        if (transcript) {
-          const lang = detectSpokenLanguage(transcript);
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < results.length; ++i) {
+          const item = results[i];
+          if (item.isFinal) {
+            finalTranscript += item[0].transcript;
+          } else {
+            interimTranscript += item[0].transcript;
+          }
+        }
+
+        const candidateText = (finalTranscript || interimTranscript).trim();
+        if (!candidateText || candidateText === lastFinalTranscript) return;
+
+        // Debounce to allow continuous sentence formulation
+        if (speechDebounceTimer) {
+          clearTimeout(speechDebounceTimer);
+        }
+
+        const delayMs = finalTranscript ? 350 : 1100;
+
+        speechDebounceTimer = setTimeout(() => {
+          if (!this.isRunning || this.isMuted || this.isProcessingSpeech) return;
+          const textToSend = candidateText;
+          lastFinalTranscript = textToSend;
+          this.isProcessingSpeech = true;
+
+          const lang = detectSpokenLanguage(textToSend);
+          console.log('[GeminiLive] 🎙️ Spoken words detected:', textToSend, 'lang:', lang);
+
           if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            console.log('[GeminiLive] Live voice detected (WS):', transcript, 'lang:', lang);
             this.ws.send(
               JSON.stringify({
                 type: 'userSpeech',
-                text: transcript,
+                text: textToSend,
+                language: prefLang,
               })
             );
           } else if (this.isDirectClientMode) {
-            console.log('[GeminiLive] Live voice detected (Direct Speech):', transcript, 'lang:', lang);
-            this.handleDirectSpeech(transcript);
+            this.handleDirectSpeech(textToSend);
           }
-        }
+        }, delayMs);
       };
 
       this.recognition.onerror = (e: any) => {
         if (e.error !== 'no-speech' && e.error !== 'aborted') {
-          console.warn('[GeminiLive] Speech recognition warning:', e.error);
+          console.warn('[GeminiLive] Speech recognition status:', e.error);
         }
       };
 
@@ -256,11 +350,13 @@ export class GeminiLiveConnection {
           !this.isProcessingSpeech &&
           this.activeSources.length === 0
         ) {
-          try {
-            this.recognition?.start();
-          } catch {
-            // Ignore if already started
-          }
+          setTimeout(() => {
+            if (this.isRunning && !this.isMuted && !this.isProcessingSpeech && this.activeSources.length === 0) {
+              try {
+                this.recognition?.start();
+              } catch {}
+            }
+          }, 150);
         }
       };
 
@@ -280,42 +376,107 @@ export class GeminiLiveConnection {
       this.outputAudioCtx.resume();
     }
 
-    // Temporarily pause speech recognition while Gemini is speaking to prevent echo
-    try {
-      this.recognition?.stop();
-    } catch {}
+    // Keep speech recognition running for interruption detection; browser echo cancellation handles speaker output
 
-    const pcmData = this.base64ToPCM16(base64Audio);
-    const float32Data = new Float32Array(pcmData.length);
-    for (let i = 0; i < pcmData.length; i++) {
-      float32Data[i] = pcmData[i] / 32768;
+    try {
+      const binary = atob(base64Audio);
+      const len = binary.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+
+      const numSamples = Math.floor(bytes.byteLength / 2);
+      const float32Data = new Float32Array(numSamples);
+      const dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+
+      for (let i = 0; i < numSamples; i++) {
+        const int16 = dataView.getInt16(i * 2, true); // little-endian
+        float32Data[i] = int16 < 0 ? int16 / 32768 : int16 / 32767;
+      }
+
+      const audioBuffer = this.outputAudioCtx.createBuffer(1, numSamples, 24000);
+      audioBuffer.getChannelData(0).set(float32Data);
+
+      const source = this.outputAudioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(this.outputAudioCtx.destination);
+
+      const startTime = Math.max(this.outputAudioCtx.currentTime, this.nextStartTime);
+      source.start(startTime);
+      this.nextStartTime = startTime + audioBuffer.duration;
+
+      this.activeSources.push(source);
+      source.onended = () => {
+        const idx = this.activeSources.indexOf(source);
+        if (idx !== -1) this.activeSources.splice(idx, 1);
+        if (this.activeSources.length === 0) {
+          this.isProcessingSpeech = false;
+          this.callbacks.onStatusChange?.('listening');
+          this.resumeSpeechRecognition();
+        }
+      };
+    } catch (err) {
+      console.warn('[GeminiLive] Error decoding or playing audio chunk:', err);
+      this.isProcessingSpeech = false;
+      this.callbacks.onStatusChange?.('listening');
+      this.resumeSpeechRecognition();
+    }
+  }
+
+  private fallbackSpeakText(text: string): void {
+    const cleaned = cleanTextForSpeech(text);
+    if (!cleaned) {
+      this.isProcessingSpeech = false;
+      this.callbacks.onStatusChange?.('listening');
+      this.resumeSpeechRecognition();
+      return;
     }
 
-    const audioBuffer = this.outputAudioCtx.createBuffer(1, float32Data.length, 24000);
-    audioBuffer.getChannelData(0).set(float32Data);
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(cleaned);
+      utterance.pitch = 1.15;
+      utterance.rate = 1.05;
 
-    const source = this.outputAudioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(this.outputAudioCtx.destination);
+      const hasTamilChars = /[\u0B80-\u0BFF]/.test(cleaned);
+      const voices = getAllVoices();
+      const tamilVoice = getFemaleVoice(voices, 'ta');
+      const enVoice = getFemaleVoice(voices, 'en');
 
-    const startTime = Math.max(this.outputAudioCtx.currentTime, this.nextStartTime);
-    source.start(startTime);
-    this.nextStartTime = startTime + audioBuffer.duration;
-
-    this.activeSources.push(source);
-    source.onended = () => {
-      const idx = this.activeSources.indexOf(source);
-      if (idx !== -1) this.activeSources.splice(idx, 1);
-      if (this.activeSources.length === 0) {
-        this.callbacks.onStatusChange?.('listening');
-        // Resume listening after speech finishes
-        if (this.isRunning && !this.isMuted) {
-          try {
-            this.recognition?.start();
-          } catch {}
-        }
+      if (hasTamilChars && tamilVoice) {
+        utterance.voice = tamilVoice;
+        utterance.lang = 'ta-IN';
+      } else if (enVoice) {
+        utterance.voice = enVoice;
+        utterance.lang = enVoice.lang || 'en-US';
       }
-    };
+
+      const onDone = () => {
+        this.isProcessingSpeech = false;
+        this.callbacks.onStatusChange?.('listening');
+        this.resumeSpeechRecognition();
+      };
+
+      utterance.onend = onDone;
+      utterance.onerror = onDone;
+      window.speechSynthesis.speak(utterance);
+    } else {
+      this.isProcessingSpeech = false;
+      this.callbacks.onStatusChange?.('listening');
+      this.resumeSpeechRecognition();
+    }
+  }
+
+  public interrupt(): void {
+    if (this.activeSources.length === 0 && !this.isProcessingSpeech) return;
+    console.log('[GeminiLive] ⚡ Interrupted speaking (barge-in)!');
+    this.stopPlayback();
+    this.isProcessingSpeech = false;
+    this.callbacks.onStatusChange?.('listening');
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'interrupt' }));
+    }
   }
 
   private stopPlayback(): void {
@@ -341,13 +502,9 @@ export class GeminiLiveConnection {
       });
     }
     if (muted) {
-      try {
-        this.recognition?.stop();
-      } catch {}
+      this.pauseSpeechRecognition();
     } else if (this.isRunning && this.activeSources.length === 0) {
-      try {
-        this.recognition?.start();
-      } catch {}
+      this.resumeSpeechRecognition();
     }
   }
 

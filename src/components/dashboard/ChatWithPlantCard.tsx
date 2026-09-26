@@ -33,7 +33,7 @@ export const ChatWithPlantCard: React.FC = () => {
 
   const { readings } = useSensorsStore();
   const { apiKey } = useSettingsStore();
-  const { liveStatus, activeError, toggleLiveSpeaking } = useLiveVoiceSession();
+  const { liveStatus, activeError, toggleLiveSpeaking, isLiveActive } = useLiveVoiceSession();
 
   const [inputText, setInputText] = useState('');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -217,22 +217,28 @@ export const ChatWithPlantCard: React.FC = () => {
           </div>
         </div>
 
-        {/* Voice Mode Toggle Button */}
+        {/* Voice Mode Toggle Button: Starts/Stops the central Gemini Live Voice session */}
         <button
           type="button"
-          onClick={toggleVoiceMode}
+          onClick={toggleLiveSpeaking}
           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all cursor-pointer active:scale-95 ${
-            isVoiceMode
+            isLiveActive
               ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-2xs'
               : 'bg-stone-50 hover:bg-stone-100 border-stone-200 text-stone-600'
           }`}
-          title={isVoiceMode ? 'Voice Mode Active — Plant will speak responses aloud' : 'Enable Voice Mode Audio'}
+          title={isLiveActive ? 'Live Voice Active — Click to stop session' : 'Start Real-time Live Voice Session'}
         >
-          {isVoiceMode ? (
+          {isLiveActive ? (
             <>
-              <Volume2 className="w-3.5 h-3.5 text-emerald-600" />
+              {liveStatus === 'speaking' ? (
+                <Volume2 className="w-3.5 h-3.5 text-emerald-600 animate-bounce" />
+              ) : (
+                <Radio className="w-3.5 h-3.5 text-rose-500 animate-pulse" />
+              )}
               <span>Voice Mode</span>
-              <Radio className="w-3 h-3 text-emerald-500 animate-pulse" />
+              <span className="text-[10px] text-emerald-700 font-bold uppercase tracking-wider">
+                {liveStatus === 'speaking' ? 'Speaking' : 'Live'}
+              </span>
             </>
           ) : (
             <>

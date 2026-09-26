@@ -1,7 +1,7 @@
 {
-  "name": "Talking Plant",
-  "short_name": "Talking Plant",
-  "description": "AI-powered plant monitoring and intelligent plant conversation.",
+  "name": "PlantTalk — Real Time Speaking Partner",
+  "short_name": "PlantTalk",
+  "description": "Real Time Speaking Partner — AI-powered living houseplant conversation in Tamil, English, and Tanglish.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

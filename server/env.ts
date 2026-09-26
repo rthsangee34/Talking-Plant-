@@ -26,17 +26,17 @@ export const GEMINI_VISION_MODEL =
   process.env.GEMINI_VISION_MODEL?.trim() || 'gemini-3.6-flash';
 
 export const GEMINI_LIVE_MODEL =
-  process.env.GEMINI_LIVE_MODEL?.trim() || 'gemini-3.1-flash-live-preview';
+  process.env.GEMINI_LIVE_MODEL?.trim() || 'gemini-3.6-flash';
 
 // Native female plant voice configuration (Section 8.7)
 export const GEMINI_LIVE_VOICE =
   process.env.GEMINI_LIVE_VOICE?.trim() || 'Aoede';
 
 export const GEMINI_TTS_MODEL =
-  process.env.GEMINI_TTS_MODEL?.trim() || 'gemini-3.8-flash-tts';
+  process.env.GEMINI_TTS_MODEL?.trim() || 'gemini-2.5-flash-preview-tts';
 
 export const GEMINI_CHAT_MODEL =
-  process.env.GEMINI_CHAT_MODEL?.trim() || 'gemini-3.8-flash';
+  process.env.GEMINI_CHAT_MODEL?.trim() || 'gemini-3.6-flash';
 
 // ─── WhatsApp Configuration ──────────────────────────────────────────────────
 

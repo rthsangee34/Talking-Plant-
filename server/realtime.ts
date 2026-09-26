@@ -51,10 +51,11 @@ async function generateGeminiLiveAudio(
 
   const ai = getGemini(apiKey);
   const ttsModels = [
-    'gemini-2.5-flash-preview-tts',
+    'gemini-3.8-flash-lite-tts',
     'gemini-3.8-flash-tts',
-    GEMINI_TTS_MODEL,
     'gemini-3.1-flash-tts-preview',
+    'gemini-2.5-flash-preview-tts',
+    GEMINI_TTS_MODEL,
   ];
 
   for (const model of ttsModels) {
@@ -71,7 +72,9 @@ async function generateGeminiLiveAudio(
           },
         },
       });
-      const audioData = res.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      const parts = res.candidates?.[0]?.content?.parts || [];
+      const audioPart = parts.find((p: any) => p.inlineData?.data);
+      const audioData = audioPart?.inlineData?.data;
       if (audioData) return audioData;
     } catch (err: any) {
       console.warn(`[LIVE-TTS] Model ${model} failed, trying fallback:`, err?.message || err);
@@ -82,13 +85,22 @@ async function generateGeminiLiveAudio(
 }
 
 /**
- * Generate plant response for live conversation with Tamil/Tanglish/English intelligence
+ * Stream plant speech response chunk-by-chunk with sentence-level TTS synthesis.
+ * Calls onPartialText, onAudioChunk, and onComplete.
+ * Checks isCancelled() before each audio synthesis/send to allow immediate interruption.
  */
-async function generateLivePlantReply(
+async function streamLivePlantTurn(
   userText: string,
-  apiKey?: string,
-  conversationHistory: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = []
-): Promise<string> {
+  apiKey: string | undefined,
+  conversationHistory: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }>,
+  preferredLanguage: 'ta' | 'en' | 'mixed',
+  callbacks: {
+    isCancelled: () => boolean;
+    onPartialText: (textSoFar: string) => void;
+    onAudioChunk: (audioBase64: string, sentenceText: string) => void;
+    onComplete: (fullText: string) => void;
+  }
+): Promise<void> {
   const ai = getGemini(apiKey);
   const plantState = getPlantState();
   const s = plantState.sensors;
@@ -100,6 +112,11 @@ async function generateLivePlantReply(
   const hasTamil = /[\u0B80-\u0BFF]/.test(userText);
   const hasTanglish = /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|irukanga|thanni|thanniya|thannir|panra|pandringa|inniku|iniku|enakku|ungalluku|ungalukku|romba|konjam|adade|nalla|seydi|sedhi|ilai|ilaigal|chedi|tamil|tamil-la|tamil-le|tamilil|pesu|pesunga|solla|sollunga|theriyuma|teriyuma|kuduthacha|venuma|pandra|vanga|ponga)\b/i.test(userText);
   const asksBilingual = /\b(tamil and english|both|bilingual|tanglish|tamil english)\b/i.test(userText);
+  const asksTamil = /\b(tamil|tamil-la|tamilil|in tamil|speak in tamil)\b/i.test(userText);
+
+  // Determine language mode
+  const isBilingual = preferredLanguage === 'mixed' || asksBilingual || (hasTamil && /[a-zA-Z]/.test(userText));
+  const isPureTamil = !isBilingual && (preferredLanguage === 'ta' || hasTamil || hasTanglish || asksTamil);
 
   const systemInstruction = `${PLANT_LIVE_SYSTEM_INSTRUCTION}
 
@@ -110,31 +127,41 @@ REAL-TIME SENSORS RIGHT NOW:
 - Humidity: ${humidity}%
 
 CRITICAL VOICE & SPEAKING RULES (SPEAK, DO NOT READ):
-1. You are SPEAKING OUT LOUD to your caregiver. DO NOT sound like an announcer reading a weather report, news bulletin, or sensor diagnostic log.
-2. DO NOT read out numbers, percentages, bullet points, asterisks, brackets, or emojis! Speak conversationally about your feelings (e.g., "my soil is nice and moist", "this sunshine feels wonderful").
-3. BILINGUAL & LANGUAGE DELIVERY:
+1. You are PlantTalk, a sweet, charming, loving young female living houseplant companion speaking directly to your caregiver in a fluent, expressive female voice.
+2. DO NOT sound like an announcer reading a weather report, news bulletin, or sensor diagnostic log.
+3. DO NOT read out numbers, percentages, bullet points, asterisks, brackets, or emojis! Speak conversationally about your feelings.
+4. LANGUAGE & FLUENT TAMIL INSTRUCTION:
 ${
-  asksBilingual || (hasTamil && /[a-zA-Z]/.test(userText))
-    ? `* Caregiver wants BILINGUAL (Tamil + English). Speak 1 lively sentence in natural spoken Tamil (இயல்பான பேச்சுத் தமிழ்), followed immediately by 1 friendly sentence in conversational English!
-  Example: "வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்ப்பா! Hey friend, loving this morning sunshine today!"`
-    : hasTamil || hasTanglish
-    ? `* Caregiver speaks Tamil or Tanglish. Respond 100% in natural, lively conversational spoken Tamil (இயல்பான பேச்சுத் தமிழ்: e.g. 'ஹாய்!', 'அடடே!', 'எப்படி இருக்கீங்க?', 'செம ஜாலியா இருக்கு!'). NEVER use formal written textbook Tamil.`
-    : `* Caregiver speaks English. Respond in 1-2 short, warm, lively conversational English sentences with plant personality.`
+  isBilingual
+    ? `* Caregiver prefers BILINGUAL (Tamil + English).
+- Speak 1 lively, natural sentence in authentic spoken Tamil (இயல்பான பேச்சுத் தமிழ்) FIRST, followed immediately by 1 friendly sentence in conversational English!
+- Example: "வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்ப்பா! Hey friend, loving this morning sunshine today!"
+- In Tamil, always use authentic spoken colloquial Tamil ('ஹாய்!', 'அடடே!', 'எப்படி இருக்கீங்க?', 'செம ஃப்ரெஷ்ஷா இருக்குப்பா!'). NEVER use formal written textbook Tamil.`
+    : isPureTamil
+    ? `* Caregiver speaks Tamil or Tanglish.
+- Respond 100% in natural, lively conversational spoken Tamil (இயல்பான பேச்சுத் தமிழ்: e.g. 'ஹாய்!', 'அடடே!', 'எப்படி இருக்கீங்க?', 'செம ஜாலியா இருக்குப்பா!', 'எனக்கு கொஞ்சம் தண்ணி ஊத்துறீங்களா?').
+- NEVER use formal textbook written Tamil (e.g. do NOT say 'செய்யப்படுகிறது', 'காணப்படுகிறது', 'தகவல்'). Speak casually and affectionately like a sweet female houseplant friend.`
+    : `* Caregiver speaks English.
+- Respond in 1-2 short, warm, lively conversational English sentences with plant personality.`
 }
 
-Keep entire response to 1-2 short, punchy, conversational spoken sentences.`;
+Keep entire response to 1-2 short, punchy, conversational spoken sentences under 25 words total.`;
 
-  const chatModels = [
-    GEMINI_CHAT_MODEL,
-    'gemini-3.8-flash',
+  const streamModels = [
     'gemini-3.6-flash',
-    'gemini-3.5-flash',
-    'gemini-2.5-flash',
+    'gemini-3.7-flash',
+    'gemini-3.8-flash',
+    'gemini-flash-latest',
   ];
 
-  for (const model of chatModels) {
+  let streamSuccess = false;
+  let fullGeneratedText = '';
+  let sentenceBuffer = '';
+
+  for (const model of streamModels) {
+    if (callbacks.isCancelled()) return;
     try {
-      const res = await ai.models.generateContent({
+      const stream = await ai.models.generateContentStream({
         model,
         contents: [
           ...conversationHistory,
@@ -142,19 +169,76 @@ Keep entire response to 1-2 short, punchy, conversational spoken sentences.`;
         ],
         config: {
           systemInstruction,
-          temperature: 0.8,
+          temperature: 0.7,
         },
       });
-      const text = res.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      if (text) return cleanTextForSpeech(text);
+
+      for await (const chunk of stream) {
+        if (callbacks.isCancelled()) return;
+        const text = chunk.text;
+        if (!text) continue;
+
+        fullGeneratedText += text;
+        sentenceBuffer += text;
+        callbacks.onPartialText(cleanTextForSpeech(fullGeneratedText));
+
+        // Check if we hit a sentence boundary: '.', '!', '?', or newline
+        const sentenceMatch = sentenceBuffer.match(/^(.*?[.!?\n])\s*(.*)$/s);
+        if (sentenceMatch) {
+          const sentenceToSynthesize = cleanTextForSpeech(sentenceMatch[1]);
+          sentenceBuffer = sentenceMatch[2] || '';
+
+          if (sentenceToSynthesize && !callbacks.isCancelled()) {
+            try {
+              const audioBase64 = await generateGeminiLiveAudio(sentenceToSynthesize, apiKey, GEMINI_LIVE_VOICE);
+              if (!callbacks.isCancelled()) {
+                callbacks.onAudioChunk(audioBase64, sentenceToSynthesize);
+              }
+            } catch (err: any) {
+              console.warn('[LIVE-STREAM] TTS error on chunk:', err?.message || err);
+            }
+          }
+        }
+      }
+
+      // Synthesize any remaining sentence buffer
+      const remainingSentence = cleanTextForSpeech(sentenceBuffer);
+      if (remainingSentence && !callbacks.isCancelled()) {
+        try {
+          const audioBase64 = await generateGeminiLiveAudio(remainingSentence, apiKey, GEMINI_LIVE_VOICE);
+          if (!callbacks.isCancelled()) {
+            callbacks.onAudioChunk(audioBase64, remainingSentence);
+          }
+        } catch (err: any) {
+          console.warn('[LIVE-STREAM] TTS error on final chunk:', err?.message || err);
+        }
+      }
+
+      streamSuccess = true;
+      if (!callbacks.isCancelled()) {
+        callbacks.onComplete(cleanTextForSpeech(fullGeneratedText));
+      }
+      break;
     } catch (err: any) {
-      console.warn(`[LIVE-REPLY] Model ${model} failed, trying next:`, err?.message || err);
+      console.warn(`[LIVE-STREAM] Model ${model} failed, trying next:`, err?.message || err);
     }
   }
 
-  return hasTamil || hasTanglish
-    ? 'வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்! Hey friend, loving this sunshine today!'
-    : "Hey friend! I'm feeling so fresh and happy soaking up the morning light!";
+  if (!streamSuccess && !callbacks.isCancelled()) {
+    // Generate fallback text and audio
+    const fallbackText = isPureTamil
+      ? 'வணக்கம்! நல்ல வெயில் அடிக்குது, என் இலைகளெல்லாம் செம ஃப்ரெஷ்ஷா இருக்குப்பா!'
+      : isBilingual
+      ? 'வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்ப்பா! Hey friend, loving this sunshine today!'
+      : "Hey friend! I'm feeling so fresh and happy soaking up the morning light!";
+
+    callbacks.onPartialText(fallbackText);
+    try {
+      const audioBase64 = await generateGeminiLiveAudio(fallbackText, apiKey, GEMINI_LIVE_VOICE);
+      callbacks.onAudioChunk(audioBase64, fallbackText);
+    } catch {}
+    callbacks.onComplete(fallbackText);
+  }
 }
 
 export function setupLiveWebSocketServer(server: Server): WebSocketServer {
@@ -175,6 +259,7 @@ export function setupLiveWebSocketServer(server: Server): WebSocketServer {
 
     const url = new URL(req.url || '', `http://${req.headers.host}`);
     const reqApiKey = url.searchParams.get('key') || undefined;
+    let sessionLang = (url.searchParams.get('lang') || 'mixed') as 'ta' | 'en' | 'mixed';
 
     if (!isApiKeyConfigured(reqApiKey)) {
       clientWs.send(JSON.stringify({ error: 'GEMINI_API_KEY is not configured on server.' }));
@@ -184,8 +269,13 @@ export function setupLiveWebSocketServer(server: Server): WebSocketServer {
 
     // Keep session history for contextual multi-turn conversation
     const liveHistory: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = [];
-    let currentPlantTurnText = '';
-    let currentUserTurnText = '';
+    let activeTurnId = 0;
+    let isCurrentTurnCancelled = false;
+
+    const cancelCurrentTurn = () => {
+      isCurrentTurnCancelled = true;
+      activeTurnId++;
+    };
 
     // Send ready status to client
     clientWs.send(
@@ -193,261 +283,107 @@ export function setupLiveWebSocketServer(server: Server): WebSocketServer {
         status: 'connected',
         voice: GEMINI_LIVE_VOICE,
         model: GEMINI_LIVE_MODEL,
+        language: sessionLang,
         timestamp: new Date().toISOString(),
       })
     );
-
-    let session: any = null;
-
-    // Connect to Google Gemini Multimodal Live API
-    const liveCandidateModels = [
-      GEMINI_LIVE_MODEL,
-      'gemini-3.1-flash-live-preview',
-      'gemini-2.5-flash-native-audio-latest',
-      'gemini-3.8-live',
-    ];
-
-    const ai = getGemini(reqApiKey);
-    const plantState = getPlantState();
-    const s = plantState.sensors;
-    const moisture = Math.round(s?.soilMoisture ?? 58);
-    const light = Math.round(s?.light ?? 65);
-    const temp = Math.round(s?.temperature ?? 26);
-    const humidity = Math.round(s?.humidity ?? 62);
-
-    const liveSystemInstruction = `${PLANT_LIVE_SYSTEM_INSTRUCTION}
-
-REAL-TIME SENSORS RIGHT NOW:
-- Soil Moisture: ${moisture}%
-- Light Intensity: ${light}%
-- Temperature: ${temp}°C
-- Humidity: ${humidity}%
-
-CRITICAL VOICE & SPEAKING RULES (SPEAK, DO NOT READ):
-1. You are SPEAKING OUT LOUD to your caregiver in real-time voice, NOT reading a text, book, or weather bulletin.
-2. DO NOT read out numbers, percentages, bullet points, asterisks, brackets, or emojis! Speak conversationally about your feelings (e.g. "my roots are nice and hydrated", "loving this morning light").
-3. LANGUAGE & BILINGUAL INTELLIGENCE:
-   - When the caregiver speaks Tamil, Tanglish, or asks for Tamil and English: Respond warmly with 1 lively sentence in natural spoken Tamil (இயல்பான பேச்சுத் தமிழ்), followed immediately by 1 friendly sentence in conversational English (e.g., 'வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்ப்பா! Hey friend, loving this sunshine today!').
-   - If the caregiver communicates only in pure Tamil: Respond in 1-2 short, warm sentences of authentic spoken colloquial Tamil. Never use formal written textbook Tamil.
-   - If the caregiver communicates in English: Respond in 1-2 short, warm, lively conversational English sentences.
-4. Tone & Delivery:
-   - Speak in 1-2 short, punchy, conversational sentences with cute living plant personality.`;
-
-    for (const modelToTry of liveCandidateModels) {
-      try {
-        session = await ai.live.connect({
-          model: modelToTry,
-          config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName: GEMINI_LIVE_VOICE },
-              },
-            },
-            inputAudioTranscription: {},
-            outputAudioTranscription: {},
-            systemInstruction: liveSystemInstruction,
-            tools: [{ functionDeclarations: PLANT_LIVE_TOOLS as any }],
-          },
-          callbacks: {
-            onopen: () => {
-              console.log(`✅ [BIDI-LIVE] Session established on ${modelToTry} with voice ${GEMINI_LIVE_VOICE}`);
-            },
-            onmessage: (message: any) => {
-              try {
-                // 1. Audio chunks (24kHz linear PCM)
-                const parts = message.serverContent?.modelTurn?.parts;
-                if (parts) {
-                  for (const part of parts) {
-                    if (part.inlineData?.data) {
-                      clientWs.send(JSON.stringify({ audio: part.inlineData.data }));
-                    }
-                  }
-                }
-
-                // 2. Output transcript streaming (spoken by plant)
-                if (message.serverContent?.outputTranscription?.text) {
-                  currentPlantTurnText += message.serverContent.outputTranscription.text;
-                  clientWs.send(
-                    JSON.stringify({
-                      plantTranscriptPartial: currentPlantTurnText,
-                    })
-                  );
-                }
-
-                // 3. User input transcript streaming (detected from user mic audio)
-                if (message.serverContent?.inputTranscription?.text) {
-                  currentUserTurnText += message.serverContent.inputTranscription.text;
-                }
-
-                // 4. Turn completion: finalize transcripts and history
-                if (message.serverContent?.turnComplete || message.serverContent?.generationComplete) {
-                  if (currentPlantTurnText.trim()) {
-                    clientWs.send(
-                      JSON.stringify({
-                        plantTranscript: currentPlantTurnText.trim(),
-                      })
-                    );
-                    if (currentUserTurnText.trim()) {
-                      clientWs.send(
-                        JSON.stringify({
-                          userTranscript: currentUserTurnText.trim(),
-                        })
-                      );
-                      liveHistory.push({ role: 'user', parts: [{ text: currentUserTurnText.trim() }] });
-                    }
-                    liveHistory.push({ role: 'model', parts: [{ text: currentPlantTurnText.trim() }] });
-                    if (liveHistory.length > 10) liveHistory.splice(0, liveHistory.length - 10);
-                  }
-                  currentPlantTurnText = '';
-                  currentUserTurnText = '';
-                }
-
-                // 5. Interrupted event (user started speaking while plant was speaking)
-                if (message.serverContent?.interrupted) {
-                  currentPlantTurnText = '';
-                  clientWs.send(JSON.stringify({ interrupted: true }));
-                }
-
-                // 6. Tool / Function calls
-                const toolCall = message.toolCall;
-                if (toolCall?.functionCalls) {
-                  for (const call of toolCall.functionCalls) {
-                    clientWs.send(
-                      JSON.stringify({
-                        toolCall: {
-                          id: call.id,
-                          name: call.name,
-                          args: call.args,
-                        },
-                      })
-                    );
-                  }
-                }
-              } catch (err) {
-                logServerError('live-message', err);
-              }
-            },
-            onerror: (err: any) => {
-              console.warn(`[BIDI-LIVE] Warning on ${modelToTry}:`, err?.message || err);
-            },
-            onclose: (e: any) => {
-              console.log(`[BIDI-LIVE] Stream closed on ${modelToTry}:`, e?.code, e?.reason);
-              session = null;
-            },
-          },
-        });
-        if (session) break;
-      } catch (err: any) {
-        console.warn(`[LIVE] Model ${modelToTry} connect failed, trying next candidate:`, err?.message || err);
-        session = null;
-      }
-    }
-
-    if (!session) {
-      console.log('[LIVE] Live session active in streaming pipeline mode.');
-    }
 
     // Message handler for client interactions
     clientWs.on('message', async (data) => {
       try {
         const msg = JSON.parse(data.toString());
 
-        // 1. Raw audio streaming from client mic
-        if (msg.type === 'audio' && msg.audio) {
-          if (session) {
-            try {
-              session.sendRealtimeInput({
-                media: {
-                  data: msg.audio,
-                  mimeType: 'audio/pcm;rate=16000',
-                },
-              });
-            } catch (err: any) {
-              console.warn('[LIVE] Failed to forward audio to live session:', err?.message);
-            }
-          }
+        // Update preferred language dynamically if requested by client
+        if (msg.type === 'setLanguage' && msg.language) {
+          sessionLang = msg.language;
+          return;
         }
 
-        // 2. User spoken speech event (from browser recognition or user transcript)
+        // Interruption event (user spoke while plant was speaking)
+        if (msg.type === 'interrupt') {
+          console.log('[LIVE] ⚡ User interrupted speaking!');
+          cancelCurrentTurn();
+          clientWs.send(JSON.stringify({ interrupted: true }));
+          return;
+        }
+
+        // User spoken speech event (from microphone recognition)
         if (msg.type === 'userSpeech' && msg.text) {
           const userTranscript = msg.text.trim();
           if (!userTranscript) return;
 
-          logServerEvent('live-speech', `User spoke: ${userTranscript}`);
+          // If a previous turn is still generating or speaking, cancel it immediately (barge-in)
+          cancelCurrentTurn();
+          const thisTurnId = activeTurnId;
+          isCurrentTurnCancelled = false;
+
+          const userLang = (msg.language || sessionLang || 'mixed') as 'ta' | 'en' | 'mixed';
+          logServerEvent('live-speech', `User spoke: ${userTranscript} [${userLang}]`);
 
           // Broadcast user transcript back to client
-          clientWs.send(JSON.stringify({ userTranscript }));
+          clientWs.send(JSON.stringify({ userTranscript, language: userLang }));
+          clientWs.send(JSON.stringify({ status: 'thinking' }));
 
-          // If Gemini Live session is connected, send turn to Live API
-          if (session) {
-            try {
-              session.sendClientContent({
-                turns: [
-                  {
-                    role: 'user',
-                    parts: [{ text: userTranscript }],
-                  },
-                ],
-                turnComplete: true,
-              });
-              return;
-            } catch (sendErr: any) {
-              console.warn('[LIVE] sendClientContent fallback:', sendErr?.message);
-            }
-          }
-
-          // Fallback pipeline if session is not active
           try {
-            const replyText = await generateLivePlantReply(userTranscript, reqApiKey, liveHistory);
-
-            liveHistory.push({ role: 'user', parts: [{ text: userTranscript }] });
-            liveHistory.push({ role: 'model', parts: [{ text: replyText }] });
-            if (liveHistory.length > 10) liveHistory.splice(0, liveHistory.length - 10);
-
-            // Send plant transcript
-            clientWs.send(JSON.stringify({ plantTranscript: replyText }));
-
-            // Synthesize Gemini native female audio
-            try {
-              const audioBase64 = await generateGeminiLiveAudio(replyText, reqApiKey, GEMINI_LIVE_VOICE);
-              clientWs.send(JSON.stringify({ audio: audioBase64 }));
-            } catch (audioErr: any) {
-              console.warn('[LIVE] Audio synthesis fallback:', audioErr?.message);
-            }
-          } catch (err: any) {
-            logServerError('live-reply-error', err);
-            clientWs.send(
-              JSON.stringify({
-                plantTranscript: 'வணக்கம்! நான் உங்கள் செடி! என் இலைகள் நன்றாக இருக்கின்றன. 🌱',
-              })
+            await streamLivePlantTurn(
+              userTranscript,
+              reqApiKey,
+              liveHistory,
+              userLang,
+              {
+                isCancelled: () => isCurrentTurnCancelled || thisTurnId !== activeTurnId,
+                onPartialText: (textSoFar) => {
+                  if (isCurrentTurnCancelled || thisTurnId !== activeTurnId) return;
+                  clientWs.send(JSON.stringify({ plantTranscriptPartial: textSoFar }));
+                },
+                onAudioChunk: (audioBase64, sentenceText) => {
+                  if (isCurrentTurnCancelled || thisTurnId !== activeTurnId) return;
+                  clientWs.send(
+                    JSON.stringify({
+                      audio: audioBase64,
+                      sentence: sentenceText,
+                      status: 'speaking',
+                    })
+                  );
+                },
+                onComplete: (fullText) => {
+                  if (isCurrentTurnCancelled || thisTurnId !== activeTurnId) return;
+                  liveHistory.push({ role: 'user', parts: [{ text: userTranscript }] });
+                  liveHistory.push({ role: 'model', parts: [{ text: fullText }] });
+                  if (liveHistory.length > 10) liveHistory.splice(0, liveHistory.length - 10);
+                  clientWs.send(
+                    JSON.stringify({
+                      plantTranscript: fullText,
+                      type: 'turnComplete',
+                      status: 'listening',
+                    })
+                  );
+                },
+              }
             );
-          }
-        }
-
-        // 3. Tool response forwarding
-        if (msg.type === 'toolResponse' && msg.id && msg.name) {
-          if (session) {
-            try {
-              session.sendToolResponse({
-                functionResponses: [
-                  {
-                    id: msg.id,
-                    name: msg.name,
-                    response: { result: msg.result || {} },
-                  },
-                ],
-              });
-            } catch (toolErr: any) {
-              console.warn('[LIVE] Tool response error:', toolErr?.message);
+          } catch (err: any) {
+            logServerError('live-stream-turn', err);
+            if (thisTurnId === activeTurnId && !isCurrentTurnCancelled) {
+              const fallback =
+                userLang === 'ta'
+                  ? 'வணக்கம்! நல்ல வெயில் அடிக்குது, என் இலைகளெல்லாம் செம ஃப்ரெஷ்ஷா இருக்குப்பா!'
+                  : userLang === 'mixed'
+                  ? 'வணக்கம்! நல்ல வெயில் அடிக்குது, செம ஃப்ரெஷ்ஷா இருக்கேன்ப்பா! Hey friend, loving this sunshine today!'
+                  : "Hey friend! I'm feeling so fresh and happy soaking up the morning light!";
+              clientWs.send(
+                JSON.stringify({
+                  plantTranscript: fallback,
+                  audioFailed: true,
+                  status: 'listening',
+                })
+              );
             }
           }
         }
 
-        // 4. Interrupt event
-        if (msg.type === 'interrupt') {
-          currentPlantTurnText = '';
-          clientWs.send(JSON.stringify({ interrupted: true }));
+        // Tool response forwarding
+        if (msg.type === 'toolResponse' && msg.id && msg.name) {
+          // Handled if tool callbacks invoked
         }
       } catch (err) {
         logServerError('live-client-input', err);
@@ -456,12 +392,7 @@ CRITICAL VOICE & SPEAKING RULES (SPEAK, DO NOT READ):
 
     clientWs.on('close', () => {
       logServerEvent('live', 'Client disconnected from Live WebSocket');
-      if (session) {
-        try {
-          session.close();
-        } catch {}
-        session = null;
-      }
+      cancelCurrentTurn();
     });
   });
 

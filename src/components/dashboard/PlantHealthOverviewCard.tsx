@@ -12,6 +12,7 @@ import {
   MicOff,
   Volume2,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import { useSensorsStore } from '../../stores/plant/sensors-store';
 import { useSettingsStore } from '../../stores/plant/settings-store';
@@ -194,7 +195,12 @@ export const PlantHealthOverviewCard: React.FC = () => {
           >
             {isLiveActive ? (
               <>
-                {liveStatus === 'speaking' ? (
+                {liveStatus === 'connecting' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 text-white animate-spin" />
+                    <span>Connecting...</span>
+                  </>
+                ) : liveStatus === 'speaking' ? (
                   <>
                     <Volume2 className="w-4 h-4 text-white animate-bounce" />
                     <span>Plant Speaking... Stop</span>

@@ -77,15 +77,43 @@ async function startServer() {
     try {
       const ai = getGemini(reqApiKey);
       // Lightweight test generation to probe the key with minimal token usage
-      await ai.models.generateContent({
-        model: GEMINI_VISION_MODEL,
-        contents: 'ping',
-      });
+      const candidateModels = [GEMINI_VISION_MODEL, 'gemini-3.7-flash', 'gemini-3.8-flash'];
+      let lastTestErr: any = null;
+      let activeModel = GEMINI_VISION_MODEL;
+      let pingSuccess = false;
+
+      for (const m of candidateModels) {
+        try {
+          await ai.models.generateContent({
+            model: m,
+            contents: 'ping',
+          });
+          activeModel = m;
+          pingSuccess = true;
+          break;
+        } catch (mErr: any) {
+          lastTestErr = mErr;
+          const msg = mErr?.message || String(mErr);
+          if (
+            msg.includes('API_KEY_INVALID') ||
+            msg.includes('API key not valid') ||
+            msg.includes('400') ||
+            msg.includes('401') ||
+            msg.includes('403')
+          ) {
+            throw mErr;
+          }
+        }
+      }
+
+      if (!pingSuccess) {
+        throw lastTestErr;
+      }
 
       return res.json({
         valid: true,
         message: 'Gemini AI connected successfully.',
-        model: GEMINI_VISION_MODEL,
+        model: activeModel,
       });
     } catch (err: any) {
       const errMsg = err?.message || String(err);
@@ -141,7 +169,13 @@ async function startServer() {
     try {
       const ai = getGemini(reqApiKey);
       const voiceName = req.body?.voice || GEMINI_LIVE_VOICE;
-      const ttsModels = [GEMINI_TTS_MODEL, 'gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-preview-tts'];
+      const ttsModels = [
+        GEMINI_TTS_MODEL,
+        'gemini-2.5-flash-preview-tts',
+        'gemini-3.8-flash-tts',
+        'gemini-3.8-flash-lite-tts',
+        'gemini-3.1-flash-tts-preview',
+      ];
       let audioBase64: string | null = null;
 
       for (const model of ttsModels) {
@@ -158,9 +192,10 @@ async function startServer() {
               },
             },
           });
-          const audio = ttsRes.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-          if (audio) {
-            audioBase64 = audio;
+          const parts = ttsRes.candidates?.[0]?.content?.parts || [];
+          const audioPart = parts.find((p: any) => p.inlineData?.data);
+          if (audioPart?.inlineData?.data) {
+            audioBase64 = audioPart.inlineData.data;
             break;
           }
         } catch (e) {

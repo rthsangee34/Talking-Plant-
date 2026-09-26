@@ -43,6 +43,24 @@ class LiveVoiceManager {
             language: language || preferredLanguage || 'mixed',
           });
         },
+        onToolCall: (name, args, result) => {
+          const formattedTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          addMessage({
+            id: `tool-${Date.now()}`,
+            sender: 'system',
+            text: `Plant accessed telemetry tool '${name}'`,
+            timestamp: formattedTime,
+            toolCalls: [
+              {
+                id: `tc-${Date.now()}`,
+                name,
+                args,
+                result,
+                timestamp: formattedTime,
+              },
+            ],
+          });
+        },
       });
 
       await this.connection.connect();
@@ -61,12 +79,25 @@ class LiveVoiceManager {
     useConversationStore.getState().setLiveStatus('disconnected');
   }
 
+  public setMuted(muted: boolean): void {
+    if (this.connection) {
+      this.connection.setMuted(muted);
+    }
+    useConversationStore.getState().setIsMuted(muted);
+  }
+
   public async toggleLiveSpeaking(): Promise<void> {
     const { liveStatus } = useConversationStore.getState();
     if (liveStatus === 'listening' || liveStatus === 'speaking' || liveStatus === 'connecting') {
       this.stopLiveSpeaking();
     } else {
       await this.startLiveSpeaking();
+    }
+  }
+
+  public interrupt(): void {
+    if (this.connection) {
+      this.connection.interrupt();
     }
   }
 
@@ -79,7 +110,7 @@ class LiveVoiceManager {
 export const liveVoiceManager = LiveVoiceManager.getInstance();
 
 export function useLiveVoiceSession() {
-  const { liveStatus, activeError } = useConversationStore();
+  const { liveStatus, activeError, isMuted } = useConversationStore();
 
   const isLiveActive =
     liveStatus === 'listening' || liveStatus === 'speaking' || liveStatus === 'connecting';
@@ -87,9 +118,12 @@ export function useLiveVoiceSession() {
   return {
     liveStatus,
     activeError,
+    isMuted,
     isLiveActive,
     startLiveSpeaking: () => liveVoiceManager.startLiveSpeaking(),
     stopLiveSpeaking: () => liveVoiceManager.stopLiveSpeaking(),
     toggleLiveSpeaking: () => liveVoiceManager.toggleLiveSpeaking(),
+    setMuted: (muted: boolean) => liveVoiceManager.setMuted(muted),
+    interrupt: () => liveVoiceManager.interrupt(),
   };
 }

@@ -144,9 +144,10 @@ Keep your entire response to 1-2 short, punchy, conversational spoken sentences.
               },
             },
           });
-          const audio = ttsRes.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-          if (audio) {
-            audioBase64 = audio;
+          const parts = ttsRes.candidates?.[0]?.content?.parts || [];
+          const audioPart = parts.find((p: any) => p.inlineData?.data);
+          if (audioPart?.inlineData?.data) {
+            audioBase64 = audioPart.inlineData.data;
             break;
           }
         } catch (ttsErr: any) {

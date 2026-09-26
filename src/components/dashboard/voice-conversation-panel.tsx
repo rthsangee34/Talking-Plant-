@@ -1,13 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import { Mic, MicOff, PhoneOff, Volume2, Globe, Sparkles, MessageSquare } from 'lucide-react';
 import { useConversationStore } from '../../stores/plant/conversation-store';
-import { GeminiLiveConnection } from '../../lib/plant/realtime-connection';
+import { useLiveVoiceSession } from '../../lib/plant/live-voice-manager';
 
 export const VoiceConversationPanel: React.FC = () => {
-  const { messages, liveStatus, isMuted, activeError, addMessage, setLiveStatus, setIsMuted } =
-    useConversationStore();
+  const { messages } = useConversationStore();
+  const { liveStatus, activeError, isMuted, isLiveActive, toggleLiveSpeaking, setMuted } =
+    useLiveVoiceSession();
 
-  const connRef = useRef<GeminiLiveConnection | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -17,60 +17,14 @@ export const VoiceConversationPanel: React.FC = () => {
   }, [messages]);
 
   const toggleConnection = async () => {
-    if (liveStatus === 'connected' || liveStatus === 'speaking' || liveStatus === 'listening') {
-      if (connRef.current) {
-        connRef.current.disconnect();
-        connRef.current = null;
-      }
-      setLiveStatus('disconnected');
-    } else {
-      const conn = new GeminiLiveConnection({
-        onStatusChange: (status, errorMsg) => {
-          setLiveStatus(status, errorMsg);
-        },
-        onTranscript: (text, sender, language) => {
-          addMessage({
-            id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            sender,
-            text,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            language,
-          });
-        },
-        onToolCall: (name, args, result) => {
-          addMessage({
-            id: `tool-${Date.now()}`,
-            sender: 'system',
-            text: `Plant accessed telemetry tool '${name}'`,
-            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            toolCalls: [
-              {
-                id: `tc-${Date.now()}`,
-                name,
-                args,
-                result,
-                timestamp: new Date().toLocaleTimeString(),
-              },
-            ],
-          });
-        },
-      });
-
-      connRef.current = conn;
-      await conn.connect();
-    }
+    await toggleLiveSpeaking();
   };
 
   const toggleMute = () => {
-    const newMuteState = !isMuted;
-    setIsMuted(newMuteState);
-    if (connRef.current) {
-      connRef.current.setMuted(newMuteState);
-    }
+    setMuted(!isMuted);
   };
 
-  const isConnected =
-    liveStatus === 'connected' || liveStatus === 'speaking' || liveStatus === 'listening';
+  const isConnected = isLiveActive;
 
   return (
     <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-3 sm:p-3.5 flex flex-col gap-3 text-white shadow-md h-full min-h-0">

@@ -77,7 +77,13 @@ export const useConversationStore = create<ConversationState>((set) => ({
   activeError: null,
 
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
-  setLiveStatus: (status, errorMsg) => set({ liveStatus: status, activeError: errorMsg || null }),
+  setLiveStatus: (status, errorMsg) =>
+    set({
+      liveStatus: status,
+      activeError: errorMsg || null,
+      isVoiceMode: status !== 'disconnected' && status !== 'error',
+      isListening: status === 'listening',
+    }),
   setIsMuted: (muted) => set({ isMuted: muted }),
   setIsVoiceMode: (enabled) => set({ isVoiceMode: enabled }),
   toggleVoiceMode: () => set((state) => ({ isVoiceMode: !state.isVoiceMode })),
