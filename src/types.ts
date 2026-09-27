@@ -184,4 +184,12 @@ export type ChatMessage = {
   toolCalls?: ToolCallLog[];
 };
 
-export type LiveSessionStatus = 'disconnected' | 'connecting' | 'connected' | 'speaking' | 'listening' | 'error';
+export type LiveSessionStatus =
+  | 'idle'
+  | 'disconnected'
+  | 'connecting'
+  | 'connected'
+  | 'speaking'
+  | 'listening'
+  | 'error'
+  | 'disconnecting';

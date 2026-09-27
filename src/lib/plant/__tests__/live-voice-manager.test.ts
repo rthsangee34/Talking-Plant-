@@ -104,4 +104,57 @@ describe('Gemini Live Voice Manager & Single Speaking Button System', () => {
     expect(useConversationStore.getState().liveStatus).toBe('error');
     expect(useConversationStore.getState().activeError).toBe('Microphone permission is required for Live Speaking.');
   });
+
+  it('accurately detects Tamil, English, Tanglish, and Mixed conversational speech', async () => {
+    const { detectSpokenLanguage } = await import('../realtime-connection');
+
+    // Test 1: Pure English
+    expect(detectSpokenLanguage('Hello PlantTalk, how are you today?')).toBe('en');
+    expect(detectSpokenLanguage('Does my plant need water today?')).toBe('en');
+
+    // Test 2: Pure Tamil
+    expect(detectSpokenLanguage('வணக்கம், என் செடி எப்படி இருக்கிறது?')).toBe('ta');
+    expect(detectSpokenLanguage('இன்று தண்ணீர் தேவையா?')).toBe('ta');
+
+    // Test 3: Tanglish (Tamil words written in English alphabet)
+    expect(detectSpokenLanguage('Innaiku en plant-ku water venuma?')).toBe('ta');
+    expect(detectSpokenLanguage('epdi irukku en chedi?')).toBe('ta');
+    expect(detectSpokenLanguage('thanni kuduthacha?')).toBe('ta');
+    expect(detectSpokenLanguage('vanakkam, enna panra?')).toBe('ta');
+
+    // Test 4: Mixed Tamil and English
+    expect(detectSpokenLanguage('வணக்கம், how much water does my plant need?')).toBe('mixed');
+  });
+
+  it('supports repeated START -> STOP -> START toggle without page refresh', async () => {
+    // 1. Initial Start
+    useConversationStore.getState().setLiveStatus('listening');
+    expect(liveVoiceManager.isLiveActive()).toBe(true);
+
+    // 2. Stop
+    liveVoiceManager.stopLiveSpeaking();
+    expect(liveVoiceManager.isLiveActive()).toBe(false);
+    expect(useConversationStore.getState().liveStatus).toBe('disconnected');
+
+    // 3. Re-start (can toggle again)
+    useConversationStore.getState().setLiveStatus('connecting');
+    expect(useConversationStore.getState().liveStatus).toBe('connecting');
+    useConversationStore.getState().setLiveStatus('listening');
+    expect(liveVoiceManager.isLiveActive()).toBe(true);
+
+    // 4. Re-stop
+    liveVoiceManager.stopLiveSpeaking();
+    expect(liveVoiceManager.isLiveActive()).toBe(false);
+  });
+
+  it('supports mute toggle and interruption handling cleanly', () => {
+    liveVoiceManager.setMuted(true);
+    expect(useConversationStore.getState().isMuted).toBe(true);
+
+    liveVoiceManager.setMuted(false);
+    expect(useConversationStore.getState().isMuted).toBe(false);
+
+    expect(() => liveVoiceManager.interrupt()).not.toThrow();
+  });
 });
+

@@ -288,10 +288,113 @@ export function setupLiveWebSocketServer(server: Server): WebSocketServer {
       })
     );
 
+    // Initialize genuine Gemini Multimodal Live session
+    let liveSession: any = null;
+    try {
+      const ai = getGemini(reqApiKey);
+      const plantState = getPlantState();
+      const s = plantState.sensors;
+      const sensorContext = `\nREAL-TIME SENSORS: Moisture: ${Math.round(s?.soilMoisture ?? 58)}%, Light: ${Math.round(s?.light ?? 65)}%, Temp: ${Math.round(s?.temperature ?? 26)}°C, Humidity: ${Math.round(s?.humidity ?? 62)}%`;
+      const liveSystemPrompt = `${PLANT_LIVE_SYSTEM_INSTRUCTION}${sensorContext}`;
+
+      liveSession = await ai.live.connect({
+        model: GEMINI_LIVE_MODEL,
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: GEMINI_LIVE_VOICE },
+            },
+          },
+          systemInstruction: {
+            parts: [{ text: liveSystemPrompt }],
+          },
+        },
+        callbacks: {
+          onopen: () => {
+            logServerEvent('live', 'Connected to Google Gemini Live API session');
+          },
+          onmessage: async (msg: any) => {
+            try {
+              if (msg.setupComplete) {
+                clientWs.send(JSON.stringify({ status: 'listening' }));
+              }
+              if (msg.serverContent) {
+                if (msg.serverContent.interrupted) {
+                  clientWs.send(JSON.stringify({ interrupted: true }));
+                }
+                const parts = msg.serverContent.modelTurn?.parts || [];
+                for (const p of parts) {
+                  if (p.inlineData?.data) {
+                    clientWs.send(
+                      JSON.stringify({
+                        audio: p.inlineData.data,
+                        status: 'speaking',
+                      })
+                    );
+                  }
+                  if (p.text) {
+                    clientWs.send(JSON.stringify({ plantTranscriptPartial: p.text }));
+                  }
+                }
+                if (msg.serverContent.turnComplete) {
+                  clientWs.send(JSON.stringify({ turnComplete: true, status: 'listening' }));
+                }
+              }
+              if (msg.toolCall) {
+                const calls = msg.toolCall.functionCalls || [];
+                const responses = [];
+                for (const call of calls) {
+                  const result = await executePlantToolCall(call.name, call.args || {});
+                  responses.push({
+                    name: call.name,
+                    response: { output: result },
+                    id: call.id,
+                  });
+                  clientWs.send(JSON.stringify({ toolCall: { name: call.name, args: call.args, result } }));
+                }
+                if (liveSession && responses.length > 0) {
+                  liveSession.sendToolResponse({ functionResponses: responses });
+                }
+              }
+            } catch (msgErr) {
+              logServerError('live-message-dispatch', msgErr);
+            }
+          },
+          onerror: (err: any) => {
+            logServerError('live-session-error', err);
+          },
+          onclose: (e: any) => {
+            logServerEvent('live', `Gemini Live session closed: ${e?.code || ''}`);
+          },
+        },
+      });
+      logServerEvent('live', `Live session established with model ${GEMINI_LIVE_MODEL}`);
+    } catch (liveErr) {
+      logServerError('live-session-connect', liveErr);
+    }
+
     // Message handler for client interactions
     clientWs.on('message', async (data) => {
       try {
         const msg = JSON.parse(data.toString());
+
+        // Stream microphone PCM audio directly into Gemini Live session
+        if (msg.type === 'audio' && msg.audio) {
+          if (liveSession) {
+            try {
+              liveSession.sendRealtimeInput([
+                {
+                  mimeType: 'audio/pcm;rate=16000',
+                  data: msg.audio,
+                },
+              ]);
+            } catch (audioErr) {
+              console.warn('[LIVE] Error sending audio chunk to Live session:', audioErr);
+            }
+          }
+          return;
+        }
 
         // Update preferred language dynamically if requested by client
         if (msg.type === 'setLanguage' && msg.language) {
@@ -307,12 +410,11 @@ export function setupLiveWebSocketServer(server: Server): WebSocketServer {
           return;
         }
 
-        // User spoken speech event (from microphone recognition)
+        // User spoken speech event (from microphone recognition or typed speech)
         if (msg.type === 'userSpeech' && msg.text) {
           const userTranscript = msg.text.trim();
           if (!userTranscript) return;
 
-          // If a previous turn is still generating or speaking, cancel it immediately (barge-in)
           cancelCurrentTurn();
           const thisTurnId = activeTurnId;
           isCurrentTurnCancelled = false;
@@ -324,6 +426,20 @@ export function setupLiveWebSocketServer(server: Server): WebSocketServer {
           clientWs.send(JSON.stringify({ userTranscript, language: userLang }));
           clientWs.send(JSON.stringify({ status: 'thinking' }));
 
+          // If live session is active, send via clientContent
+          if (liveSession) {
+            try {
+              liveSession.sendClientContent({
+                turns: [{ role: 'user', parts: [{ text: userTranscript }] }],
+                turnComplete: true,
+              });
+              return;
+            } catch (liveSendErr) {
+              console.warn('[LIVE] Live session sendClientContent failed, using fallback turn streamer:', liveSendErr);
+            }
+          }
+
+          // Fallback turn streamer if live session was unavailable
           try {
             await streamLivePlantTurn(
               userTranscript,
@@ -383,7 +499,19 @@ export function setupLiveWebSocketServer(server: Server): WebSocketServer {
 
         // Tool response forwarding
         if (msg.type === 'toolResponse' && msg.id && msg.name) {
-          // Handled if tool callbacks invoked
+          if (liveSession) {
+            try {
+              liveSession.sendToolResponse({
+                functionResponses: [
+                  {
+                    name: msg.name,
+                    response: { output: msg.result },
+                    id: msg.id,
+                  },
+                ],
+              });
+            } catch {}
+          }
         }
       } catch (err) {
         logServerError('live-client-input', err);
@@ -393,6 +521,12 @@ export function setupLiveWebSocketServer(server: Server): WebSocketServer {
     clientWs.on('close', () => {
       logServerEvent('live', 'Client disconnected from Live WebSocket');
       cancelCurrentTurn();
+      if (liveSession) {
+        try {
+          liveSession.close();
+        } catch {}
+        liveSession = null;
+      }
     });
   });
 

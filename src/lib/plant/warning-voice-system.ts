@@ -392,21 +392,9 @@ export function speakTouchWarning(
         const enVoice = getFemaleVoice(voices, 'en');
 
         if (lang === 'ta' || (lang === 'mixed' && hasTamilChars)) {
+          utterance.lang = 'ta-IN';
           if (tamilVoice) {
             utterance.voice = tamilVoice;
-            utterance.lang = 'ta-IN';
-          } else {
-            // No Tamil SAPI voice installed on this machine (common on Windows Chrome)
-            // If mixed, extract the English sentence so it speaks naturally rather than reading Tamil phonetically
-            const englishPart = cleanedPhrase.replace(/[\u0B80-\u0BFF]+[^\w]*/g, '').trim();
-            if (englishPart && enVoice) {
-              utterance.text = englishPart;
-              utterance.voice = enVoice;
-              utterance.lang = enVoice.lang || 'en-US';
-            } else if (enVoice) {
-              utterance.voice = enVoice;
-              utterance.lang = enVoice.lang || 'en-US';
-            }
           }
         } else {
           utterance.lang = 'en-US';
