@@ -12,6 +12,7 @@ describe('Gemini Live Voice Manager & Single Speaking Button System', () => {
 
   afterEach(() => {
     liveVoiceManager.stopLiveSpeaking();
+    vi.unstubAllGlobals();
   });
 
   it('centralizes female voice configuration with Aoede as primary and Kore as alternative', () => {
@@ -26,6 +27,12 @@ describe('Gemini Live Voice Manager & Single Speaking Button System', () => {
   });
 
   it('handles microphone permission denial gracefully without crashing', async () => {
+    vi.stubGlobal('window', {
+      AudioContext: class {
+        resume = vi.fn().mockResolvedValue(undefined);
+        close = vi.fn().mockResolvedValue(undefined);
+      },
+    });
     // Mock navigator.mediaDevices.getUserMedia rejection
     const mockGetUserMedia = vi.fn().mockRejectedValue(new Error('Permission denied'));
     vi.stubGlobal('navigator', {

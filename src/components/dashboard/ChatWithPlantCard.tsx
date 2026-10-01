@@ -179,6 +179,14 @@ export const ChatWithPlantCard: React.FC = () => {
           className:
             'w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center transition-all cursor-pointer active:scale-90 shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white animate-pulse shadow-xs border border-emerald-500',
         };
+      case 'stopping':
+        return {
+          icon: <Loader2 className="w-4 h-4 animate-spin text-amber-600" />,
+          label: 'Stopping...',
+          tooltip: 'Stopping...',
+          className:
+            'w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center transition-all cursor-wait active:scale-90 shrink-0 bg-amber-50 border border-amber-300 text-amber-600',
+        };
       case 'error':
         return {
           icon: <AlertCircle className="w-4 h-4 text-white" />,

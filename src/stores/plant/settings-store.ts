@@ -69,7 +69,7 @@ export const useSettingsStore = create<SettingsState>()(
       aiProvider: 'gemini',
       preferredLanguage: 'mixed',
       geminiVisionModel: 'gemini-3.6-flash',
-      geminiLiveModel: 'gemini-3.6-flash',
+      geminiLiveModel: 'gemini-3.8-live',
       apiKeyConfigured: initialKey.length > 0,
       apiKey: initialKey,
       apiStatus: initialKey.length > 0 ? 'AI_READY' : 'NO_KEY',

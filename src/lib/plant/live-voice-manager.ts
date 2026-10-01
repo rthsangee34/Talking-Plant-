@@ -14,7 +14,7 @@ class LiveVoiceManager {
   }
 
   public async startLiveSpeaking(): Promise<void> {
-    const { apiKey, preferredLanguage } = useSettingsStore.getState();
+    const { preferredLanguage } = useSettingsStore.getState();
     const { setLiveStatus, addMessage } = useConversationStore.getState();
 
     // If already active, return
@@ -25,23 +25,32 @@ class LiveVoiceManager {
     try {
       setLiveStatus('connecting');
 
-      this.connection = new GeminiLiveConnection({
+      const connection = new GeminiLiveConnection({
         onStatusChange: (status, errorMsg) => {
+          if (this.connection !== connection) return;
           setLiveStatus(status, errorMsg);
-          if (status === 'disconnected') {
+          if (status === 'disconnected' || status === 'error') {
             this.connection = null;
           }
         },
+        onStreamingTranscript: (text, sender, isFinal, language) => {
+          const { updateLiveTranscriptMessage } = useConversationStore.getState();
+          updateLiveTranscriptMessage(sender, text, isFinal, language || preferredLanguage || 'mixed');
+        },
         onTranscript: (text, sender, language) => {
-          const formattedTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          addMessage({
-            id: `live-${sender}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-            sender,
-            text,
-            isVoice: true,
-            timestamp: formattedTime,
-            language: language || preferredLanguage || 'mixed',
-          });
+          const { messages, addMessage } = useConversationStore.getState();
+          const hasStream = messages.some((m) => m.id === `live-stream-${sender}`);
+          if (!hasStream) {
+            const formattedTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            addMessage({
+              id: `live-${sender}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+              sender,
+              text,
+              isVoice: true,
+              timestamp: formattedTime,
+              language: language || preferredLanguage || 'mixed',
+            });
+          }
         },
         onToolCall: (name, args, result) => {
           const formattedTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -63,7 +72,9 @@ class LiveVoiceManager {
         },
       });
 
-      await this.connection.connect();
+      this.connection = connection;
+      connection.setMuted(useConversationStore.getState().isMuted);
+      await connection.connect();
     } catch (err: any) {
       const errMsg = err?.message || 'Failed to start Live Speaking.';
       setLiveStatus('error', errMsg);
@@ -73,6 +84,7 @@ class LiveVoiceManager {
 
   public stopLiveSpeaking(): void {
     if (this.connection) {
+      useConversationStore.getState().setLiveStatus('stopping');
       this.connection.disconnect();
       this.connection = null;
     }
@@ -88,6 +100,7 @@ class LiveVoiceManager {
 
   public async toggleLiveSpeaking(): Promise<void> {
     const { liveStatus } = useConversationStore.getState();
+    if (liveStatus === 'stopping') return;
     if (liveStatus === 'listening' || liveStatus === 'speaking' || liveStatus === 'connecting') {
       this.stopLiveSpeaking();
     } else {

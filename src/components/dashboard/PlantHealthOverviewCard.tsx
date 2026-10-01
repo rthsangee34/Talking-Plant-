@@ -183,34 +183,45 @@ export const PlantHealthOverviewCard: React.FC = () => {
             <span>View Full Screen</span>
           </button>
 
-          {/* Start Speak Large Emerald Button */}
+          {/* Start Speak Large Emerald Button with Real-Time Gemini Live Voice State Machine */}
           <button
             type="button"
             onClick={toggleLiveSpeaking}
+            disabled={liveStatus === 'stopping'}
             className={`px-7 py-2.5 rounded-full font-bold text-xs sm:text-sm tracking-wide shadow-md flex items-center gap-2 transition-all cursor-pointer active:scale-95 ${
-              isLiveActive
-                ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse shadow-rose-900/20'
+              liveStatus === 'connecting'
+                ? 'bg-amber-600 text-white shadow-amber-900/20'
+                : liveStatus === 'listening'
+                ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-900/20'
+                : liveStatus === 'speaking'
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-900/20'
+                : liveStatus === 'stopping'
+                ? 'bg-amber-600 text-white shadow-amber-900/20 opacity-90 cursor-wait'
                 : 'bg-emerald-800 hover:bg-emerald-900 text-white shadow-emerald-900/20'
             }`}
           >
-            {isLiveActive ? (
+            {liveStatus === 'connecting' ? (
               <>
-                {liveStatus === 'connecting' ? (
-                  <>
-                    <Loader2 className="w-4 h-4 text-white animate-spin" />
-                    <span>Connecting...</span>
-                  </>
-                ) : liveStatus === 'speaking' ? (
-                  <>
-                    <Volume2 className="w-4 h-4 text-white animate-bounce" />
-                    <span>Plant Speaking... Stop</span>
-                  </>
-                ) : (
-                  <>
-                    <MicOff className="w-4 h-4" />
-                    <span>Listening... Stop</span>
-                  </>
-                )}
+                <Loader2 className="w-4 h-4 text-white animate-spin" />
+                <span>Connecting...</span>
+              </>
+            ) : liveStatus === 'listening' ? (
+              <>
+                <span className="relative flex h-2.5 w-2.5 mr-0.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-300 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                </span>
+                <span>Listening...</span>
+              </>
+            ) : liveStatus === 'speaking' ? (
+              <>
+                <Volume2 className="w-4 h-4 text-white animate-bounce" />
+                <span>AI Speaking...</span>
+              </>
+            ) : liveStatus === 'stopping' ? (
+              <>
+                <Loader2 className="w-4 h-4 text-white animate-spin" />
+                <span>Stopping...</span>
               </>
             ) : (
               <>

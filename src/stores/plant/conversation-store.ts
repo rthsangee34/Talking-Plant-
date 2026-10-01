@@ -21,6 +21,12 @@ interface ConversationState {
   activeError: string | null;
 
   addMessage: (msg: UnifiedChatMessage) => void;
+  updateLiveTranscriptMessage: (
+    sender: 'user' | 'plant',
+    text: string,
+    isFinal: boolean,
+    language?: 'en' | 'ta' | 'mixed'
+  ) => void;
   setLiveStatus: (status: LiveSessionStatus, errorMsg?: string) => void;
   setIsMuted: (muted: boolean) => void;
   setIsVoiceMode: (enabled: boolean) => void;
@@ -77,6 +83,68 @@ export const useConversationStore = create<ConversationState>((set) => ({
   activeError: null,
 
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
+  updateLiveTranscriptMessage: (sender, text, isFinal, language) =>
+    set((state) => {
+      const trimmed = text.trim();
+      if (!trimmed) return state;
+
+      const formattedTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const streamId = `live-stream-${sender}`;
+      const existingIdx = state.messages.findIndex((m) => m.id === streamId);
+
+      if (!isFinal) {
+        if (existingIdx >= 0) {
+          const updated = [...state.messages];
+          updated[existingIdx] = {
+            ...updated[existingIdx],
+            text: trimmed,
+            language: language || updated[existingIdx].language,
+          };
+          return { messages: updated };
+        } else {
+          return {
+            messages: [
+              ...state.messages,
+              {
+                id: streamId,
+                sender,
+                text: trimmed,
+                timestamp: formattedTime,
+                isVoice: true,
+                language: language || 'en',
+              },
+            ],
+          };
+        }
+      } else {
+        // Finalized turn: commit to permanent message ID
+        const finalId = `live-${sender}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+        if (existingIdx >= 0) {
+          const updated = [...state.messages];
+          updated[existingIdx] = {
+            ...updated[existingIdx],
+            id: finalId,
+            text: trimmed,
+            language: language || updated[existingIdx].language,
+          };
+          return { messages: updated };
+        } else {
+          return {
+            messages: [
+              ...state.messages,
+              {
+                id: finalId,
+                sender,
+                text: trimmed,
+                timestamp: formattedTime,
+                isVoice: true,
+                language: language || 'en',
+              },
+            ],
+          };
+        }
+      }
+    }),
   setLiveStatus: (status, errorMsg) =>
     set({
       liveStatus: status,

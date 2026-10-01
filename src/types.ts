@@ -192,4 +192,5 @@ export type LiveSessionStatus =
   | 'speaking'
   | 'listening'
   | 'error'
+  | 'stopping'
   | 'disconnecting';

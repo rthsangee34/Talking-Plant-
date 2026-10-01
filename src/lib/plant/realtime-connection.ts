@@ -1,5 +1,5 @@
 import { executePlantToolCall } from './realtime-tools';
-import { PLANT_LIVE_TOOLS } from './realtime-config';
+import { PLANT_LIVE_TOOLS, DEFAULT_GEMINI_FEMALE_VOICE, resolveLiveModel } from './realtime-config';
 import { PLANT_LIVE_SYSTEM_INSTRUCTION } from './prompts';
 import { useSettingsStore } from '../../stores/plant/settings-store';
 import { useSensorsStore } from '../../stores/plant/sensors-store';
@@ -7,17 +7,12 @@ import { useApiUsageStore } from '../../stores/plant/api-usage-store';
 import { LiveSessionStatus } from '../../types';
 
 export interface LiveConnectionCallbacks {
-  onStatusChange?: (
-    status: LiveSessionStatus,
-    errorMsg?: string
-  ) => void;
+  onStatusChange?: (status: LiveSessionStatus, errorMsg?: string) => void;
   onTranscript?: (text: string, sender: 'user' | 'plant', language?: 'en' | 'ta' | 'mixed') => void;
+  onStreamingTranscript?: (text: string, sender: 'user' | 'plant', isFinal: boolean, language?: 'en' | 'ta' | 'mixed') => void;
   onToolCall?: (toolName: string, args: Record<string, unknown>, result: Record<string, unknown>) => void;
 }
 
-/**
- * Intelligent language detection supporting Tamil script, Tanglish keywords, mixed, and English.
- */
 export function detectSpokenLanguage(text: string): 'ta' | 'en' | 'mixed' {
   if (!text) return 'en';
   const hasTamil = /[\u0B80-\u0BFF]/.test(text);
@@ -30,17 +25,7 @@ export function detectSpokenLanguage(text: string): 'ta' | 'en' | 'mixed' {
   return 'en';
 }
 
-/**
- * GeminiLiveConnection
- *
- * Implements true bidirectional real-time audio communication with Gemini Live.
- * - Captures 16kHz PCM audio from browser microphone.
- * - Streams audio directly to Gemini Live session.
- * - Receives and plays 24kHz PCM audio chunks via HTML5 Web Audio API.
- * - Understands Tamil, English, and Tanglish natively with female Aoede voice.
- * - Supports instant barge-in interruption and tool execution.
- * - Connects via local server proxy (/api/live) or direct Google AI Studio WebSocket.
- */
+/** Streams microphone PCM to Gemini and plays its native audio replies. */
 export class GeminiLiveConnection {
   private ws: WebSocket | null = null;
   private inputAudioCtx: AudioContext | null = null;
@@ -48,705 +33,324 @@ export class GeminiLiveConnection {
   private mediaStream: MediaStream | null = null;
   private processor: ScriptProcessorNode | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private recognition: any = null;
+  private silenceGain: GainNode | null = null;
   private activeSources: AudioBufferSourceNode[] = [];
-  private nextStartTime: number = 0;
-  private isMuted: boolean = false;
-  private isRunning: boolean = false;
-  private isConnecting: boolean = false;
-  private isDirectGoogleMode: boolean = false;
-  private callbacks: LiveConnectionCallbacks = {};
+  private nextStartTime = 0;
+  private isMuted = false;
+  private isRunning = false;
+  private isConnecting = false;
+  private isDirectGoogleMode = false;
+  private generation = 0;
+  private cancelPending: (() => void) | null = null;
+  private userTranscript = '';
+  private plantTranscript = '';
 
-  constructor(callbacks: LiveConnectionCallbacks = {}) {
-    this.callbacks = callbacks;
-  }
+  constructor(private callbacks: LiveConnectionCallbacks = {}) {}
 
   public async connect(): Promise<void> {
     if (this.isRunning || this.isConnecting) return;
+    const generation = ++this.generation;
     this.isConnecting = true;
-
-    console.log('[PlantTalk Live] Initializing');
     this.callbacks.onStatusChange?.('connecting');
-
-    // 1. Request microphone permission
-    console.log('[PlantTalk Live] Requesting microphone');
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Microphone access requires HTTPS and a supported browser.');
+      }
+      // Resume during the button gesture, before waiting for permission/network.
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      this.inputAudioCtx = new AudioCtx({ sampleRate: 16000 });
+      this.outputAudioCtx = new AudioCtx({ sampleRate: 24000 });
+      const audioReady = Promise.all([this.inputAudioCtx.resume(), this.outputAudioCtx.resume()]);
+      // Observe errors immediately even if the permission dialog stays open.
+      void audioReady.catch(() => {});
+      let stream: MediaStream;
       try {
-        this.mediaStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            sampleRate: 16000,
-            channelCount: 1,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-        });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: {
+          channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true,
+        }});
       } catch {
-        this.mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        throw new Error('Microphone permission is required for Live Speaking.');
       }
-      console.log('[PlantTalk Live] Microphone granted');
-    } catch (micErr: any) {
-      console.warn('[PlantTalk Live] Microphone access denied or unavailable:', micErr);
-      this.isConnecting = false;
-      this.callbacks.onStatusChange?.('error', 'Microphone permission is required for Live Speaking.');
-      this.cleanup();
-      return;
-    }
-
-    // 2. Initialize Web Audio Contexts
-    try {
-      const AudioCtxClass =
-        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.inputAudioCtx = new AudioCtxClass({ sampleRate: 16000 });
-      this.outputAudioCtx = new AudioCtxClass({ sampleRate: 24000 });
-
-      if (this.inputAudioCtx.state === 'suspended') {
-        await this.inputAudioCtx.resume();
+      if (generation !== this.generation) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
       }
-      if (this.outputAudioCtx.state === 'suspended') {
-        await this.outputAudioCtx.resume();
-      }
-      this.nextStartTime = this.outputAudioCtx.currentTime;
-    } catch (audioInitErr) {
-      console.warn('[PlantTalk Live] AudioContext initialization failed:', audioInitErr);
-      this.isConnecting = false;
-      this.callbacks.onStatusChange?.('error', 'Unable to initialize audio. Please try again.');
-      this.cleanup();
-      return;
-    }
+      this.mediaStream = stream;
+      stream.getAudioTracks().forEach(track => { track.enabled = !this.isMuted; });
+      await audioReady;
+      if (generation !== this.generation) return;
 
-    // 3. Connect WebSocket (Try server proxy /api/live first, fallback to direct Google Gemini Live)
-    const { apiKey, preferredLanguage } = useSettingsStore.getState();
-    const envKey = (import.meta as any).env?.VITE_GEMINI_API_KEY || '';
-    const activeApiKey = apiKey || envKey;
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const serverProxyUrl = `${protocol}//${window.location.host}/api/live${
-      activeApiKey ? `?key=${encodeURIComponent(activeApiKey)}&lang=${preferredLanguage || 'mixed'}` : ''
-    }`;
-
-    console.log('[PlantTalk Live] Connecting to Gemini');
-
-    try {
-      await this.connectWithFallback(serverProxyUrl, activeApiKey);
-    } catch (connErr: any) {
-      console.error('[PlantTalk Live] Connection error:', connErr);
-      this.isConnecting = false;
-      this.callbacks.onStatusChange?.('error', connErr?.message || 'Unable to connect to Gemini Live. Please try again.');
-      this.cleanup();
+      const { apiKey, preferredLanguage } = useSettingsStore.getState();
+      // Firebase Hosting has no WebSocket backend. The existing setup screen
+      // supplies the user's own key, so connect straight to Google in that case.
+      this.isDirectGoogleMode = !!apiKey?.trim();
+      const url = this.isDirectGoogleMode
+        ? 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=' + encodeURIComponent(apiKey.trim())
+        : (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/api/live?lang=' + preferredLanguage;
+      await this.openSocket(url);
+    } catch (error) {
+      if (generation !== this.generation) return;
+      this.fail(error instanceof Error ? error.message : 'Unable to start Live Speaking.');
     }
   }
 
-  /**
-   * Attempt connection to local server proxy, falling back to direct Google Live API
-   */
-  private connectWithFallback(proxyUrl: string, apiKey: string): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      let resolved = false;
-
-      // Timeout for proxy attempt before falling back to direct Google Live API
-      const proxyTimeout = setTimeout(() => {
-        if (!resolved && !this.isRunning) {
-          console.warn('[PlantTalk Live] Proxy timeout. Switching to Direct Google Live WebSocket.');
-          tryConnectDirect();
-        }
-      }, 1500);
-
-      const tryConnectDirect = () => {
-        clearTimeout(proxyTimeout);
-        if (this.ws) {
-          try {
-            this.ws.onopen = null;
-            this.ws.onerror = null;
-            this.ws.onclose = null;
-            this.ws.close();
-          } catch {}
-          this.ws = null;
-        }
-
-        if (!apiKey) {
-          if (!resolved) {
-            resolved = true;
-            reject(new Error('Please configure your Gemini API Key in Settings to start Live Speaking.'));
-          }
-          return;
-        }
-
-        this.isDirectGoogleMode = true;
-        const googleUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(
-          apiKey
-        )}`;
-
-        try {
-          this.ws = new WebSocket(googleUrl);
-          this.setupDirectSocketHandlers(resolve, reject);
-        } catch (err) {
-          if (!resolved) {
-            resolved = true;
-            reject(err);
-          }
-        }
-      };
-
-      try {
-        this.ws = new WebSocket(proxyUrl);
-        this.isDirectGoogleMode = false;
-
-        this.ws.onopen = () => {
-          clearTimeout(proxyTimeout);
-          if (resolved) return;
-          resolved = true;
-          this.isRunning = true;
-          this.isConnecting = false;
-          console.log('[PlantTalk Live] Connected via server proxy');
-          this.callbacks.onStatusChange?.('listening');
-          useApiUsageStore.getState().recordApiCall('live', '/api/live', 'success');
-          this.startAudioProcessing();
-          this.startPassiveSpeechObserver();
-          resolve();
-        };
-
-        this.ws.onmessage = async (event) => {
-          this.handleServerProxyMessage(event.data);
-        };
-
-        this.ws.onerror = (err) => {
-          console.warn('[PlantTalk Live] Proxy error, switching to direct mode:', err);
-          tryConnectDirect();
-        };
-
-        this.ws.onclose = () => {
-          if (!resolved) {
-            tryConnectDirect();
-          } else if (this.isRunning) {
-            console.log('[PlantTalk Live] Proxy disconnected');
-            this.callbacks.onStatusChange?.('disconnected');
-            this.cleanup();
-          }
-        };
-      } catch (err) {
-        tryConnectDirect();
-      }
-    });
+  private directSetup() {
+    const { geminiLiveModel, preferredLanguage } = useSettingsStore.getState();
+    const s = useSensorsStore.getState().readings;
+    const sensorContext = '\nCurrent readings: ' + JSON.stringify(s);
+    return { setup: {
+      model: 'models/' + resolveLiveModel(import.meta.env.VITE_GEMINI_LIVE_MODEL || geminiLiveModel),
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: DEFAULT_GEMINI_FEMALE_VOICE } } },
+      },
+      systemInstruction: { parts: [{ text: PLANT_LIVE_SYSTEM_INSTRUCTION + sensorContext +
+        '\nPreferred language: ' + preferredLanguage + '. Wait for the caregiver to speak; then reply naturally in their language.' }] },
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
+      tools: [{ functionDeclarations: PLANT_LIVE_TOOLS }],
+    }};
   }
 
-  /**
-   * Set up message & lifecycle handlers for Direct Google Gemini Live WebSocket
-   */
-  private setupDirectSocketHandlers(resolve: () => void, reject: (err: any) => void): void {
-    if (!this.ws) return;
-
-    let hasHandshaked = false;
-
-    this.ws.onopen = () => {
-      console.log('[PlantTalk Live] Direct WebSocket open. Sending setup handshake...');
-
-      const sensors = useSensorsStore.getState().readings;
-      const sensorContext = `\nREAL-TIME SENSORS RIGHT NOW: Soil Moisture: ${Math.round(
-        sensors.moisture || 58
-      )}%, Light: ${Math.round(sensors.light || 65)}%, Temp: ${Math.round(
-        sensors.temperature || 26
-      )}°C, Humidity: ${Math.round(sensors.humidity || 62)}%`;
-      const liveSystemPrompt = `${PLANT_LIVE_SYSTEM_INSTRUCTION}${sensorContext}`;
-
-      // Gemini Multimodal Live Setup Handshake
-      const setupMsg = {
-        setup: {
-          model: 'models/gemini-3.8-live',
-          generationConfig: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: 'Aoede',
-                },
-              },
-            },
-          },
-          systemInstruction: {
-            parts: [{ text: liveSystemPrompt }],
-          },
-          tools: [
-            {
-              functionDeclarations: PLANT_LIVE_TOOLS,
-            },
-          ],
-        },
+  private openSocket(url: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(url);
+      this.ws = ws;
+      ws.binaryType = 'arraybuffer';
+      let ready = false;
+      let settled = false;
+      const timer = setTimeout(() => end(new Error('Gemini Live did not become ready. Check your connection and API key, then try again.')), 15000);
+      const end = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.cancelPending = null;
+        if (error) reject(error); else resolve();
       };
-
-      this.ws?.send(JSON.stringify(setupMsg));
-    };
-
-    this.ws.onmessage = async (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-
-        // Handshake complete
-        if (msg.setupComplete) {
-          console.log('[PlantTalk Live] Setup complete from Gemini Live');
-          if (!hasHandshaked) {
-            hasHandshaked = true;
+      this.cancelPending = () => end(new Error('Connection cancelled.'));
+      const socketError = (message: string) => {
+        if (ready) this.fail(message); else end(new Error(message));
+      };
+      ws.onopen = () => {
+        if (this.ws === ws && this.isDirectGoogleMode) ws.send(JSON.stringify(this.directSetup()));
+      };
+      // Binary WebSocket frames are ArrayBuffers (or Blobs in some browsers).
+      // Decode and process in order so slow Blob reads cannot reorder turns.
+      let messages = Promise.resolve();
+      ws.onmessage = event => {
+        messages = messages.then(async () => {
+          if (this.ws !== ws || (settled && !ready)) return;
+          const raw = typeof event.data === 'string' ? event.data
+            : event.data instanceof Blob ? await event.data.text()
+            : new TextDecoder().decode(event.data);
+          if (this.ws !== ws) return;
+          const msg = JSON.parse(raw);
+          if (msg.error) {
+            socketError(typeof msg.error === 'string' ? msg.error : msg.error.message || 'Gemini Live rejected the connection.');
+            return;
+          }
+          const handshake = this.isDirectGoogleMode ? msg.setupComplete : msg.status === 'listening';
+          if (!ready && handshake) {
+            this.startAudioProcessing();
+            ready = true;
             this.isRunning = true;
             this.isConnecting = false;
             this.callbacks.onStatusChange?.('listening');
-            this.startAudioProcessing();
-            this.startPassiveSpeechObserver();
-            resolve();
+            useApiUsageStore.getState().recordApiCall('live', this.isDirectGoogleMode ? 'Gemini Live' : '/api/live', 'success');
+            end();
           }
-          return;
-        }
-
-        // Real-time server content from Gemini
-        if (msg.serverContent) {
-          if (msg.serverContent.interrupted) {
-            console.log('[PlantTalk Live] Gemini signaled speech interruption');
-            this.stopPlayback();
-            this.callbacks.onStatusChange?.('listening');
-          }
-
-          const parts = msg.serverContent.modelTurn?.parts || [];
-          for (const p of parts) {
-            if (p.inlineData?.data) {
-              this.callbacks.onStatusChange?.('speaking');
-              this.playAudioChunk(p.inlineData.data);
-            }
-            if (p.text) {
-              const lang = detectSpokenLanguage(p.text);
-              this.callbacks.onTranscript?.(p.text, 'plant', lang);
-            }
-          }
-
-          if (msg.serverContent.turnComplete) {
-            // When all scheduled audio chunks finish playing, state resets to listening
-            if (this.activeSources.length === 0) {
-              this.callbacks.onStatusChange?.('listening');
-            }
-          }
-        }
-
-        // Function call / Botanical Tool execution
-        if (msg.toolCall) {
-          const calls = msg.toolCall.functionCalls || [];
-          const responses = [];
-          for (const call of calls) {
-            const result = await executePlantToolCall(call.name, call.args || {});
-            responses.push({
-              name: call.name,
-              response: { output: result },
-              id: call.id,
-            });
-            this.callbacks.onToolCall?.(call.name, call.args || {}, result);
-          }
-          if (this.ws && this.ws.readyState === WebSocket.OPEN && responses.length > 0) {
-            this.ws.send(
-              JSON.stringify({
-                toolResponse: {
-                  functionResponses: responses,
-                },
-              })
-            );
-          }
-        }
-
-        if (msg.error) {
-          console.warn('[PlantTalk Live] Gemini Live API error message:', msg.error);
-          this.callbacks.onStatusChange?.('error', msg.error.message || 'Gemini Live encountered an error.');
-        }
-      } catch (e) {
-        console.error('[PlantTalk Live] Error processing incoming Live message:', e);
-      }
-    };
-
-    this.ws.onerror = (err) => {
-      console.warn('[PlantTalk Live] Direct WebSocket error:', err);
-      if (!hasHandshaked) {
-        reject(new Error('Unable to connect to Gemini Live. Please check your network and API key.'));
-      }
-    };
-
-    this.ws.onclose = (event) => {
-      console.log(`[PlantTalk Live] Direct WebSocket closed (code: ${event.code})`);
-      if (this.isRunning) {
-        this.callbacks.onStatusChange?.('disconnected');
-        this.cleanup();
-      }
-    };
-  }
-
-  /**
-   * Handle incoming messages when routed through the server proxy
-   */
-  private async handleServerProxyMessage(rawData: string): Promise<void> {
-    try {
-      const msg = JSON.parse(rawData);
-
-      if (msg.userTranscript) {
-        const lang = detectSpokenLanguage(msg.userTranscript);
-        this.callbacks.onTranscript?.(msg.userTranscript, 'user', lang);
-      }
-
-      if (msg.plantTranscript) {
-        const lang = detectSpokenLanguage(msg.plantTranscript);
-        this.callbacks.onTranscript?.(msg.plantTranscript, 'plant', lang);
-      }
-
-      if (msg.plantTranscriptPartial) {
-        const lang = detectSpokenLanguage(msg.plantTranscriptPartial);
-        this.callbacks.onTranscript?.(msg.plantTranscriptPartial, 'plant', lang);
-      }
-
-      if (msg.audio) {
-        this.callbacks.onStatusChange?.('speaking');
-        this.playAudioChunk(msg.audio);
-      }
-
-      if (msg.interrupted) {
-        console.log('[PlantTalk Live] Interruption received from server');
-        this.stopPlayback();
-        this.callbacks.onStatusChange?.('listening');
-      }
-
-      if (msg.status === 'listening' && this.activeSources.length === 0) {
-        this.callbacks.onStatusChange?.('listening');
-      }
-
-      if (msg.toolCall) {
-        const { id, name, args } = msg.toolCall;
-        const result = await executePlantToolCall(name, args || {});
-        this.callbacks.onToolCall?.(name, args || {}, result);
-
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(
-            JSON.stringify({
-              type: 'toolResponse',
-              id,
-              name,
-              result,
-            })
-          );
-        }
-      }
-
-      if (msg.error) {
-        this.callbacks.onStatusChange?.('error', msg.error);
-      }
-    } catch (e) {
-      console.error('[PlantTalk Live] Error processing proxy message:', e);
-    }
-  }
-
-  /**
-   * Start microphone audio processing pipeline (16kHz linear PCM streaming)
-   */
-  private startAudioProcessing(): void {
-    if (!this.mediaStream || !this.inputAudioCtx) return;
-
-    try {
-      this.sourceNode = this.inputAudioCtx.createMediaStreamSource(this.mediaStream);
-      this.processor = this.inputAudioCtx.createScriptProcessor(2048, 1, 1);
-
-      // Connect to silence gain to prevent mic feedback through speakers
-      const silenceGain = this.inputAudioCtx.createGain();
-      silenceGain.gain.value = 0;
-
-      this.sourceNode.connect(this.processor);
-      this.processor.connect(silenceGain);
-      silenceGain.connect(this.inputAudioCtx.destination);
-
-      this.processor.onaudioprocess = (e) => {
-        if (!this.isRunning || this.isMuted) return;
-
-        const float32Data = e.inputBuffer.getChannelData(0);
-
-        // Barge-in energy detection: if user speaks into mic while plant audio is playing
-        if (this.activeSources.length > 0) {
-          let sumSquares = 0;
-          for (let i = 0; i < float32Data.length; i++) {
-            sumSquares += float32Data[i] * float32Data[i];
-          }
-          const rms = Math.sqrt(sumSquares / float32Data.length);
-          if (rms > 0.055) {
-            console.log('[PlantTalk Live] ⚡ User barge-in detected via microphone energy level:', rms.toFixed(4));
-            this.interrupt();
-          }
-        }
-
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-
-        const pcm16Data = this.convertFloat32ToPCM16(float32Data);
-        const base64Audio = this.arrayBufferToBase64(pcm16Data);
-
-        if (this.isDirectGoogleMode) {
-          // Direct Google Multimodal Live protocol
-          this.ws.send(
-            JSON.stringify({
-              realtimeInput: {
-                mediaChunks: [
-                  {
-                    mimeType: 'audio/pcm;rate=16000',
-                    data: base64Audio,
-                  },
-                ],
-              },
-            })
-          );
+          if (ready) await this.handleMessage(msg, ws);
+        }).catch(() => {
+          if (this.ws === ws) socketError('Unable to process Gemini Live audio. Please try again.');
+        });
+      };
+      ws.onerror = () => socketError(this.isDirectGoogleMode
+        ? 'Unable to connect to Gemini Live. Check your network and Gemini API key.'
+        : 'Live server unavailable. Connect your Gemini API key on the setup screen and try again.');
+      ws.onclose = event => {
+        if (this.ws !== ws) return;
+        if (!ready || event.code !== 1000) {
+          socketError(event.reason || 'Gemini Live disconnected. Check your API key, model access and quota, then try again.');
         } else {
-          // Server proxy protocol
-          this.ws.send(
-            JSON.stringify({
-              type: 'audio',
-              audio: base64Audio,
-            })
-          );
+          this.flushTranscripts();
+          this.cleanup();
+          this.callbacks.onStatusChange?.('disconnected');
         }
       };
+    });
+  }
 
-      console.log('[PlantTalk Live] Audio input started (16kHz PCM)');
-    } catch (err) {
-      console.warn('[PlantTalk Live] AudioContext input setup failed:', err);
+  private async handleMessage(msg: any, ws: WebSocket): Promise<void> {
+    const content = msg.serverContent;
+    if (content?.interrupted || msg.interrupted) {
+      this.stopPlayback();
+      this.flushTranscripts();
+      this.callbacks.onStatusChange?.('listening');
+    }
+    this.userTranscript += content?.inputTranscription?.text || msg.userTranscript || '';
+    if (this.userTranscript) {
+      this.callbacks.onStreamingTranscript?.(
+        this.userTranscript,
+        'user',
+        !!content?.inputTranscription?.finished,
+        detectSpokenLanguage(this.userTranscript)
+      );
+    }
+    this.plantTranscript += content?.outputTranscription?.text || msg.plantTranscriptPartial || '';
+    if (this.plantTranscript) {
+      this.callbacks.onStreamingTranscript?.(
+        this.plantTranscript,
+        'plant',
+        false,
+        detectSpokenLanguage(this.plantTranscript)
+      );
+    }
+    if (content?.inputTranscription?.finished) this.flushTranscript('user');
+    for (const part of content?.modelTurn?.parts || []) {
+      if (part.inlineData?.data && part.inlineData.mimeType?.startsWith('audio/pcm')) {
+        this.flushTranscript('user');
+        this.playAudioChunk(part.inlineData.data);
+      }
+    }
+    if (msg.audio) {
+      this.flushTranscript('user');
+      this.playAudioChunk(msg.audio);
+    }
+    if (content?.turnComplete || msg.turnComplete) {
+      this.flushTranscripts();
+      if (!this.activeSources.length) this.callbacks.onStatusChange?.('listening');
+    }
+    const calls = msg.toolCall?.functionCalls || (msg.toolCall?.id ? [msg.toolCall] : []);
+    for (const call of calls) {
+      const result = await executePlantToolCall(call.name, call.args || {});
+      if (this.ws !== ws || ws.readyState !== WebSocket.OPEN) return;
+      this.callbacks.onToolCall?.(call.name, call.args || {}, result);
+      ws.send(JSON.stringify(this.isDirectGoogleMode
+        ? { toolResponse: { functionResponses: [{ id: call.id, name: call.name, response: { output: result } }] } }
+        : { type: 'toolResponse', id: call.id, name: call.name, result }));
     }
   }
 
-  /**
-   * Passive SpeechRecognition observer (purely for displaying user speech bubbles in transcript log)
-   * Does NOT trigger text API calls or browser TTS.
-   */
-  private startPassiveSpeechObserver(): void {
-    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRec) return;
-
-    try {
-      if (this.recognition) {
-        try {
-          this.recognition.stop();
-        } catch {}
-        this.recognition = null;
-      }
-
-      this.recognition = new SpeechRec();
-      this.recognition.continuous = true;
-      this.recognition.interimResults = true;
-      this.recognition.maxAlternatives = 1;
-
-      const prefLang = useSettingsStore.getState().preferredLanguage;
-      this.recognition.lang = prefLang === 'en' ? 'en-US' : 'ta-IN';
-
-      this.recognition.onresult = (event: any) => {
-        if (!this.isRunning || this.isMuted) return;
-
-        // Barge-in: if speech detected while plant is speaking, interrupt plant audio
-        if (this.activeSources.length > 0) {
-          console.log('[PlantTalk Live] ⚡ User interrupted plant speaking via recognized voice!');
-          this.interrupt();
-        }
-
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            transcript += event.results[i][0].transcript;
-          }
-        }
-
-        const candidateText = transcript.trim();
-        if (candidateText) {
-          const lang = detectSpokenLanguage(candidateText);
-          this.callbacks.onTranscript?.(candidateText, 'user', lang);
-        }
-      };
-
-      this.recognition.onerror = () => {};
-      this.recognition.onend = () => {
-        if (this.isRunning && !this.isMuted) {
-          setTimeout(() => {
-            if (this.isRunning && !this.isMuted) {
-              try {
-                this.recognition?.start();
-              } catch {}
-            }
-          }, 200);
-        }
-      };
-
-      this.recognition.start();
-    } catch {
-      // Non-blocking
+  private flushTranscript(sender: 'user' | 'plant'): void {
+    const text = (sender === 'user' ? this.userTranscript : this.plantTranscript).trim();
+    if (sender === 'user') this.userTranscript = ''; else this.plantTranscript = '';
+    if (text) {
+      const lang = detectSpokenLanguage(text);
+      this.callbacks.onStreamingTranscript?.(text, sender, true, lang);
+      this.callbacks.onTranscript?.(text, sender, lang);
     }
   }
 
-  /**
-   * Real-time audio playback chunk player (24kHz linear PCM)
-   */
-  private playAudioChunk(base64Audio: string): void {
-    if (!this.outputAudioCtx || this.outputAudioCtx.state === 'closed') {
-      const AudioCtxClass =
-        window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.outputAudioCtx = new AudioCtxClass({ sampleRate: 24000 });
-      this.nextStartTime = this.outputAudioCtx.currentTime;
-    }
-
-    if (this.outputAudioCtx.state === 'suspended') {
-      this.outputAudioCtx.resume().catch(() => {});
-    }
-
-    try {
-      const binary = atob(base64Audio);
-      const len = binary.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-
-      const numSamples = Math.floor(bytes.byteLength / 2);
-      const float32Data = new Float32Array(numSamples);
-      const dataView = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-
-      for (let i = 0; i < numSamples; i++) {
-        const int16 = dataView.getInt16(i * 2, true); // little-endian
-        float32Data[i] = int16 < 0 ? int16 / 32768 : int16 / 32767;
-      }
-
-      const audioBuffer = this.outputAudioCtx.createBuffer(1, numSamples, 24000);
-      audioBuffer.getChannelData(0).set(float32Data);
-
-      const source = this.outputAudioCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(this.outputAudioCtx.destination);
-
-      const startTime = Math.max(this.outputAudioCtx.currentTime, this.nextStartTime);
-      source.start(startTime);
-      this.nextStartTime = startTime + audioBuffer.duration;
-
-      this.activeSources.push(source);
-      source.onended = () => {
-        const idx = this.activeSources.indexOf(source);
-        if (idx !== -1) this.activeSources.splice(idx, 1);
-        if (this.activeSources.length === 0 && this.isRunning) {
-          this.callbacks.onStatusChange?.('listening');
-        }
-      };
-    } catch (err) {
-      console.warn('[PlantTalk Live] Error decoding or playing audio chunk:', err);
-      if (this.activeSources.length === 0 && this.isRunning) {
-        this.callbacks.onStatusChange?.('listening');
-      }
-    }
+  private flushTranscripts(): void {
+    this.flushTranscript('user');
+    this.flushTranscript('plant');
   }
 
-  /**
-   * Barge-in interruption: immediately halts playback and clears queue
-   */
+  private startAudioProcessing(): void {
+    if (!this.mediaStream || !this.inputAudioCtx) throw new Error('Microphone unavailable.');
+    this.sourceNode = this.inputAudioCtx.createMediaStreamSource(this.mediaStream);
+    this.processor = this.inputAudioCtx.createScriptProcessor(2048, 1, 1);
+    this.silenceGain = this.inputAudioCtx.createGain();
+    this.silenceGain.gain.value = 0;
+    this.sourceNode.connect(this.processor);
+    this.processor.connect(this.silenceGain);
+    this.silenceGain.connect(this.inputAudioCtx.destination);
+    this.processor.onaudioprocess = event => {
+      if (!this.isRunning || this.isMuted || this.ws?.readyState !== WebSocket.OPEN) return;
+      const data = this.arrayBufferToBase64(this.convertFloat32ToPCM16(event.inputBuffer.getChannelData(0)));
+      // Declare the actual AudioContext rate, including browsers using a
+      // hardware rate other than the requested 16 kHz. Gemini resamples it.
+      const mimeType = 'audio/pcm;rate=' + this.inputAudioCtx!.sampleRate;
+      this.ws.send(JSON.stringify(this.isDirectGoogleMode
+        ? { realtimeInput: { audio: { data, mimeType } } }
+        : { type: 'audio', audio: data, mimeType }));
+    };
+    // Gemini's native VAD handles barge-in. A second browser recognizer or
+    // local loudness threshold mistakes speaker echo for user interruptions.
+  }
+
+  private playAudioChunk(base64: string): void {
+    const context = this.outputAudioCtx;
+    if (!context || !this.isRunning) return;
+    const bytes = Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+    const view = new DataView(bytes.buffer);
+    const buffer = context.createBuffer(1, Math.floor(bytes.length / 2), 24000);
+    const samples = buffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) samples[i] = view.getInt16(i * 2, true) / 32768;
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(context.destination);
+    this.activeSources.push(source);
+    source.onended = () => {
+      source.disconnect();
+      this.activeSources = this.activeSources.filter(item => item !== source);
+      if (!this.activeSources.length && this.isRunning) this.callbacks.onStatusChange?.('listening');
+    };
+    const start = Math.max(context.currentTime, this.nextStartTime);
+    source.start(start);
+    this.nextStartTime = start + buffer.duration;
+    this.callbacks.onStatusChange?.('speaking');
+  }
+
   public interrupt(): void {
-    if (this.activeSources.length === 0) return;
-    console.log('[PlantTalk Live] ⚡ Interrupted speaking (barge-in)!');
     this.stopPlayback();
-    this.callbacks.onStatusChange?.('listening');
-
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      if (this.isDirectGoogleMode) {
-        // Send empty turn to cancel active model generation
-        try {
-          this.ws.send(JSON.stringify({ clientContent: { turns: [], turnComplete: true } }));
-        } catch {}
-      } else {
-        try {
-          this.ws.send(JSON.stringify({ type: 'interrupt' }));
-        } catch {}
-      }
-    }
+    if (this.isRunning) this.callbacks.onStatusChange?.('listening');
   }
 
-  /**
-   * Stop all active audio playback sources immediately
-   */
   private stopPlayback(): void {
     for (const source of this.activeSources) {
-      try {
-        source.stop();
-        source.disconnect();
-      } catch {}
+      source.onended = null;
+      try { source.stop(); source.disconnect(); } catch {}
     }
     this.activeSources = [];
-    if (this.outputAudioCtx && this.outputAudioCtx.state !== 'closed') {
-      this.nextStartTime = this.outputAudioCtx.currentTime;
-    }
+    this.nextStartTime = this.outputAudioCtx?.currentTime || 0;
   }
 
   public setMuted(muted: boolean): void {
-    this.isMuted = muted;
-    if (this.mediaStream) {
-      this.mediaStream.getAudioTracks().forEach((track) => {
-        track.enabled = !muted;
-      });
+    if (muted && !this.isMuted && this.isRunning && this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(this.isDirectGoogleMode
+        ? { realtimeInput: { audioStreamEnd: true } } : { type: 'audioStreamEnd' }));
     }
+    this.isMuted = muted;
+    this.mediaStream?.getAudioTracks().forEach(track => { track.enabled = !muted; });
   }
 
   public disconnect(): void {
-    console.log('[PlantTalk Live] Disconnecting Live session');
-    this.callbacks.onStatusChange?.('disconnecting');
+    this.flushTranscripts();
     this.cleanup();
     this.callbacks.onStatusChange?.('disconnected');
-    console.log('[PlantTalk Live] Session closed');
+  }
+
+  private fail(message: string): void {
+    this.cleanup();
+    this.callbacks.onStatusChange?.('error', message);
   }
 
   private cleanup(): void {
+    ++this.generation;
     this.isRunning = false;
     this.isConnecting = false;
-    this.isDirectGoogleMode = false;
+    this.cancelPending?.();
+    this.cancelPending = null;
     this.stopPlayback();
-
-    if (this.recognition) {
-      try {
-        this.recognition.onend = null;
-        this.recognition.onerror = null;
-        this.recognition.onresult = null;
-        this.recognition.stop();
-      } catch {}
-      this.recognition = null;
-    }
-
-    if (this.processor) {
-      try {
-        this.processor.disconnect();
-      } catch {}
-      this.processor = null;
-    }
-    if (this.sourceNode) {
-      try {
-        this.sourceNode.disconnect();
-      } catch {}
-      this.sourceNode = null;
-    }
-    if (this.inputAudioCtx) {
-      try {
-        this.inputAudioCtx.close().catch(() => {});
-      } catch {}
-      this.inputAudioCtx = null;
-    }
-    if (this.outputAudioCtx) {
-      try {
-        this.outputAudioCtx.close().catch(() => {});
-      } catch {}
-      this.outputAudioCtx = null;
-    }
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach((track) => {
-        try {
-          track.enabled = false;
-          track.stop();
-        } catch {}
-      });
-      this.mediaStream = null;
-    }
+    if (this.processor) { this.processor.onaudioprocess = null; this.processor.disconnect(); }
+    this.processor = null;
+    this.sourceNode?.disconnect();
+    this.sourceNode = null;
+    this.silenceGain?.disconnect();
+    this.silenceGain = null;
+    void this.inputAudioCtx?.close().catch(() => {});
+    void this.outputAudioCtx?.close().catch(() => {});
+    this.inputAudioCtx = null;
+    this.outputAudioCtx = null;
+    this.mediaStream?.getTracks().forEach(track => track.stop());
+    this.mediaStream = null;
     if (this.ws) {
-      try {
-        this.ws.onopen = null;
-        this.ws.onmessage = null;
-        this.ws.onerror = null;
-        this.ws.onclose = null;
-        this.ws.close();
-      } catch {}
+      this.ws.onopen = this.ws.onmessage = this.ws.onerror = this.ws.onclose = null;
+      this.ws.close();
       this.ws = null;
     }
+    this.userTranscript = this.plantTranscript = '';
   }
 
   private convertFloat32ToPCM16(float32Array: Float32Array): ArrayBuffer {

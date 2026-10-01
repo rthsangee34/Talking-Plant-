@@ -55,9 +55,49 @@ export const PLANT_LIVE_TOOLS = [
       properties: {},
     },
   },
+  {
+    name: 'getPlantHealth',
+    description: 'Retrieve overall plant health status, visible condition, and recent observation note.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {},
+    },
+  },
+  {
+    name: 'getSensorData',
+    description: 'Retrieve current real-time sensor telemetry including soil moisture, light, temperature, and humidity.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {},
+    },
+  },
+  {
+    name: 'getCurrentPlant',
+    description: 'Retrieve the currently detected plant species, name, and care requirements.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {},
+    },
+  },
+  {
+    name: 'getCameraAnalysis',
+    description: 'Retrieve latest vision camera analysis including detected plants, flowers, buds, and visible condition.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {},
+    },
+  },
 ];
 
 // Centralized Gemini Female Plant Voice Configuration (Section 8.7)
 export const DEFAULT_GEMINI_FEMALE_VOICE = 'Aoede';
 export const ALTERNATIVE_GEMINI_FEMALE_VOICE = 'Kore';
+
+export const DEFAULT_GEMINI_LIVE_MODEL = 'gemini-3.8-live';
+
+// Older installations persisted a text-only Flash model in the Live setting.
+export function resolveLiveModel(model?: string): string {
+  const name = model?.trim().replace(/^models\//, '');
+  return name?.includes('live') ? name : DEFAULT_GEMINI_LIVE_MODEL;
+}
 

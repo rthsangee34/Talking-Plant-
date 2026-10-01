@@ -6,6 +6,7 @@ import { calculatePhotosynthesisAnalysis } from '../plantAnalysis/photosynthesis
 
 export async function executePlantToolCall(toolName: string, _args: Record<string, unknown>): Promise<Record<string, unknown>> {
   switch (toolName) {
+    case 'getSensorData':
     case 'get_sensor_readings': {
       const sensors = useSensorsStore.getState().readings;
       const isEspConnected = useSensorsStore.getState().isEspConnected;
@@ -16,6 +17,39 @@ export async function executePlantToolCall(toolName: string, _args: Record<strin
         manualOverride: isManualMode,
       };
     }
+
+    case 'getPlantHealth': {
+      const latest = useObserverStore.getState().currentObservation;
+      const analysis = useObserverStore.getState().lastAnalysis;
+      const mainPlant = analysis?.plants?.find(p => p.role === 'main') || analysis?.plants?.[0];
+      const sensors = useSensorsStore.getState().readings;
+      return {
+        healthStatus: latest?.healthStatus || 'Good',
+        visibleCondition: mainPlant?.visibleCondition || 'Healthy and vibrant',
+        sensoryNote: latest?.sensoryNote || 'I feel comfortable and well cared for.',
+        actionRequired: latest?.actionRequired || false,
+        urgentNeeds: latest?.urgentNeeds || [],
+        soilMoisture: sensors.moisture ? Math.round(sensors.moisture) : undefined,
+        lightIntensity: sensors.light ? Math.round(sensors.light) : undefined,
+        temperature: sensors.temperature ? Math.round(sensors.temperature) : undefined,
+        humidity: sensors.humidity ? Math.round(sensors.humidity) : undefined,
+      };
+    }
+
+    case 'getCurrentPlant': {
+      const analysis = useObserverStore.getState().lastAnalysis;
+      const mainPlant = analysis?.plants?.find(p => p.role === 'main') || analysis?.plants?.[0];
+      return {
+        plantName: mainPlant?.displayName || DEFAULT_PLANT_PROFILE.name,
+        commonName: mainPlant?.commonName || DEFAULT_PLANT_PROFILE.species,
+        scientificName: mainPlant?.scientificName || 'Epipremnum aureum',
+        identificationConfidence: mainPlant?.identificationConfidence || 'confirmed',
+        targetMoistureRange: `${DEFAULT_PLANT_PROFILE.targetMoistureMin}% - ${DEFAULT_PLANT_PROFILE.targetMoistureMax}%`,
+        targetLightRange: `${DEFAULT_PLANT_PROFILE.targetLightMin}% - ${DEFAULT_PLANT_PROFILE.targetLightMax}%`,
+      };
+    }
+
+    case 'getCameraAnalysis':
 
     case 'get_latest_observation': {
       const latest = useObserverStore.getState().currentObservation;
