@@ -227,7 +227,7 @@ export class GeminiLiveService {
     const model =
       import.meta.env.VITE_GEMINI_LIVE_MODEL ||
       geminiLiveModel ||
-      'gemini-3.8-live';
+      'gemini-2.0-flash-live-001';
 
     const plantContext = getCurrentPlantContext();
     const plantContextStr = `

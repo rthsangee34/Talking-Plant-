@@ -15,8 +15,12 @@ data/
 .kilocode/
 scratch/
 firebase-debug.log
+firebase-debug.*.log
 fix*.cjs
 append.cjs
 
-
-.vercel
+# Firebase Functions and Secret Manager local files
+functions/lib/
+functions/node_modules/
+.secret.local
+*.secret.local

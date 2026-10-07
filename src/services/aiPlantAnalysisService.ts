@@ -87,60 +87,34 @@ export async function generatePlantHealthExplanation(
 ): Promise<HealthExplanationResult> {
   const personality = request.personality || (request.healthStatus === 'CRITICAL' ? 'angry' : 'humorous');
 
-  // 1. Check if Gemini API key exists (prefer sessionStorage, then legacy fallback)
-  const apiKey = typeof window !== 'undefined' 
-    ? (window.sessionStorage.getItem('plant_talk_gemini_api_key') || localStorage.getItem('gemini_api_key'))
-    : null;
-
-  if (apiKey && request.healthStatus !== 'HEALTHY') {
+  if (request.healthStatus !== 'HEALTHY') {
     try {
-      const prompt = `You are the witty, living personality of a houseplant named "${request.plantName || 'Plant'}".
-The hardware monitoring system computed the following plant status:
-- Plant Species: ${request.species || 'Indoor Plant'}
-- Current Soil Moisture: ${request.soilMoisture}%
-- Temperature: ${request.temperature ?? 'N/A'}°C
-- Humidity: ${request.humidity ?? 'N/A'}%
-- Deterministic Health Status: ${request.healthStatus}
-- Reason: ${request.reason}
-- Trend: ${request.trend}
-- Tone: ${personality} (witty, slightly sassy living houseplant, protective of its leaves)
+      const apiKey = typeof window !== 'undefined'
+        ? (window.sessionStorage?.getItem('plant_talk_gemini_api_key') || localStorage?.getItem('gemini_api_key'))
+        : null;
 
-Provide:
-1. Short English message (max 2 sentences, include plant emoji)
-2. Sri Lankan Tamil translation (natural spoken Jaffna/Colombo conversational Tamil, max 2 sentences)
-
-Return ONLY JSON:
-{
-  "english": "...",
-  "tamil": "..."
-}`;
-
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+      const res = await fetch('/api/plant/health-explanation', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseMimeType: 'application/json', temperature: 0.7 },
-        }),
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { 'X-Gemini-API-Key': apiKey } : {}),
+        },
+        body: JSON.stringify(request),
       });
 
       if (res.ok) {
         const data = await res.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) {
-          const parsed = JSON.parse(text);
-          if (parsed.english && parsed.tamil) {
-            return {
-              english: parsed.english,
-              tamil: parsed.tamil,
-              personality,
-              source: 'ai',
-            };
-          }
+        if (data.english && data.tamil) {
+          return {
+            english: data.english,
+            tamil: data.tamil,
+            personality,
+            source: 'ai',
+          };
         }
       }
     } catch {
-      // Fallback on error
+      // Backend unavailable; proceed to deterministic fallback
     }
   }
 

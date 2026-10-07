@@ -93,11 +93,21 @@ export const PLANT_LIVE_TOOLS = [
 export const DEFAULT_GEMINI_FEMALE_VOICE = 'Aoede';
 export const ALTERNATIVE_GEMINI_FEMALE_VOICE = 'Kore';
 
-export const DEFAULT_GEMINI_LIVE_MODEL = 'gemini-3.8-live';
+export const DEFAULT_GEMINI_LIVE_MODEL = 'gemini-2.0-flash-live-001';
 
-// Older installations persisted a text-only Flash model in the Live setting.
+// Known valid Gemini Live model identifiers
+const KNOWN_LIVE_MODELS = [
+  'gemini-2.0-flash-live-001',
+  'gemini-2.5-flash-preview-native-audio-dialog',
+];
+
 export function resolveLiveModel(model?: string): string {
   const name = model?.trim().replace(/^models\//, '');
-  return name?.includes('live') ? name : DEFAULT_GEMINI_LIVE_MODEL;
+  if (!name) return DEFAULT_GEMINI_LIVE_MODEL;
+  // Exact match against known valid models
+  if (KNOWN_LIVE_MODELS.includes(name)) return name;
+  // Fallback: if it contains 'live' it might be a newer model we don't know yet
+  if (name.includes('live')) return name;
+  return DEFAULT_GEMINI_LIVE_MODEL;
 }
 

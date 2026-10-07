@@ -174,7 +174,7 @@ export class GeminiProvider implements AIProvider {
       // Backend unavailable; proceed to direct fallback
     }
 
-    const keyToUse = apiKey || import.meta.env.VITE_GEMINI_API_KEY || '';
+    const keyToUse = apiKey?.trim() || '';
     if (!keyToUse) {
       const hasTamil = /[\u0B80-\u0BFF]/.test(message) ||
         /\b(vanakkam|nandri|epdi|eppadi|irukka|irukku|thanni|panra|inniku|romba|tamil)\b/i.test(message);

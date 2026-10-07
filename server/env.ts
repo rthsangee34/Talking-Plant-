@@ -6,13 +6,42 @@ import type { WhatsAppConfig } from './whatsapp/types';
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
+import { defineSecret } from 'firebase-functions/params';
+
+// Firebase Secret Manager definition for Firebase Functions v2
+export const geminiApiKey = defineSecret('GEMINI_API_KEY');
+
+/**
+ * Safely retrieve the Gemini API key from Firebase Secret Manager.
+ * Uses geminiApiKey.value() when running inside Firebase Cloud Functions,
+ * falling back to process.env.GEMINI_API_KEY during local development or unit tests.
+ */
+export function getGeminiApiKey(): string | undefined {
+  try {
+    const val = geminiApiKey.value();
+    if (val && val.trim() !== '') {
+      return val.trim();
+    }
+  } catch {
+    // In local non-functions environments or testing, geminiApiKey.value() throws;
+    // fall back to process.env
+  }
+
+  const envVal = process.env.GEMINI_API_KEY?.trim();
+  if (envVal && envVal !== 'replace-me') {
+    return envVal;
+  }
+
+  return undefined;
+}
+
 export function checkEnvConfig(): { configured: boolean; message: string } {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = getGeminiApiKey();
 
   if (!apiKey || apiKey === 'replace-me' || apiKey.trim() === '') {
     return {
       configured: false,
-      message: 'GEMINI_API_KEY is missing or set to "replace-me". Please configure a valid Gemini API Key from Google AI Studio.',
+      message: 'GEMINI_API_KEY is missing or set to "replace-me". Please configure GEMINI_API_KEY via Firebase Secret Manager (firebase functions:secrets:set GEMINI_API_KEY) or .env.local.',
     };
   }
 
@@ -26,7 +55,7 @@ export const GEMINI_VISION_MODEL =
   process.env.GEMINI_VISION_MODEL?.trim() || 'gemini-3.8-flash';
 
 export const GEMINI_LIVE_MODEL =
-  process.env.GEMINI_LIVE_MODEL?.trim() || 'gemini-3.8-live';
+  process.env.GEMINI_LIVE_MODEL?.trim() || 'gemini-2.0-flash-live-001';
 
 // Native female plant voice configuration (Section 8.7)
 export const GEMINI_LIVE_VOICE =

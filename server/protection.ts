@@ -390,3 +390,82 @@ Never use technical terms (camera, sensor, AI, detection).`;
     });
   }
 }
+
+/**
+ * Generates an AI plant personality explanation for deterministic health status.
+ * Securely uses the Firebase Secret Manager Gemini API key on the backend.
+ */
+export async function handleHealthExplanationRequest(req: Request, res: Response): Promise<void> {
+  const reqApiKey = (req.headers['x-gemini-api-key'] as string | undefined) || req.body?.apiKey;
+  if (!ensureApiKey(res, reqApiKey)) {
+    return;
+  }
+
+  const {
+    plantName = 'Plant',
+    species = 'Indoor Plant',
+    soilMoisture,
+    temperature,
+    humidity,
+    healthStatus = 'HEALTHY',
+    reason = '',
+    trend = '',
+    personality = 'friendly',
+  } = req.body || {};
+
+  try {
+    const ai = getGemini(reqApiKey);
+    const prompt = `You are the witty, living personality of a houseplant named "${plantName}".
+The hardware monitoring system computed the following plant status:
+- Plant Species: ${species}
+- Current Soil Moisture: ${soilMoisture}%
+- Temperature: ${temperature ?? 'N/A'}°C
+- Humidity: ${humidity ?? 'N/A'}%
+- Deterministic Health Status: ${healthStatus}
+- Reason: ${reason}
+- Trend: ${trend}
+- Tone: ${personality} (witty, slightly sassy living houseplant, protective of its leaves)
+
+Provide:
+1. Short English message (max 2 sentences, include plant emoji)
+2. Sri Lankan Tamil translation (natural spoken Jaffna/Colombo conversational Tamil, max 2 sentences)
+
+Return ONLY JSON:
+{
+  "english": "...",
+  "tamil": "..."
+}`;
+
+    const response = await ai.models.generateContent({
+      model: GEMINI_VISION_MODEL,
+      contents: { parts: [{ text: prompt }] },
+      config: {
+        responseMimeType: 'application/json',
+        temperature: 0.7,
+      },
+    });
+
+    const rawText = response.text?.trim() || '';
+    if (rawText) {
+      const parsed = JSON.parse(rawText);
+      if (parsed.english && parsed.tamil) {
+        res.json({
+          english: parsed.english,
+          tamil: parsed.tamil,
+          personality,
+          source: 'gemini',
+        });
+        return;
+      }
+    }
+
+    throw new Error('Invalid JSON format received from Gemini.');
+  } catch (error) {
+    logServerError('health-explanation', error);
+    res.status(500).json({
+      error: 'EXPLANATION_FAILED',
+      message: 'Failed to generate health explanation with Gemini.',
+    });
+  }
+}
+

@@ -101,7 +101,7 @@ describe('real-time voice transport', () => {
     expect(status).toHaveBeenLastCalledWith('connecting');
     expect(FakeAudioContext.instances[0].processor.onaudioprocess).toBeNull();
     const setup = JSON.parse(ws.send.mock.calls[0][0]).setup;
-    expect(setup.model).toBe('models/gemini-3.8-live');
+    expect(setup.model).toBe('models/gemini-2.0-flash-live-001');
     expect(setup.inputAudioTranscription).toEqual({});
     expect(setup.outputAudioTranscription).toEqual({});
     ws.message(new TextEncoder().encode('{"setupComplete":{}}').buffer);

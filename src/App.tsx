@@ -27,8 +27,25 @@ export default function App() {
     let isMounted = true;
 
     async function checkStartupApiKey() {
-      const storedKey = apiKey?.trim() || import.meta.env.VITE_GEMINI_API_KEY || '';
+      // 1. Check if backend Cloud Function has Gemini API key securely configured via Secret Manager
+      try {
+        const res = await fetch('/api/health');
+        if (res.ok) {
+          const health = await res.json();
+          if (health.apiKeyConfigured) {
+            setApiKeyConfigured(true);
+            if (isMounted) {
+              setIsInitializing(false);
+            }
+            return;
+          }
+        }
+      } catch {
+        // Backend not yet reachable or running offline
+      }
 
+      // 2. Check local user session key if previously provided
+      const storedKey = apiKey?.trim() || '';
       if (storedKey) {
         try {
           await validateAndConnectKey(storedKey);

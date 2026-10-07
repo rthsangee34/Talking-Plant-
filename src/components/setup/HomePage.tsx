@@ -26,13 +26,29 @@ interface HomePageProps {
 export const HomePage: React.FC<HomePageProps> = ({ onSuccess }) => {
   const { apiKey, setApiKeyConfigured, setApiStatus, validateAndConnectKey } = useSettingsStore();
 
-  const [inputKey, setInputKey] = useState<string>(
-    apiKey || import.meta.env.VITE_GEMINI_API_KEY || ''
-  );
+  const [inputKey, setInputKey] = useState<string>(apiKey || '');
   const [showKey, setShowKey] = useState<boolean>(false);
   const [isValidating, setIsValidating] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    async function checkBackendKey() {
+      try {
+        const res = await fetch('/api/health');
+        if (res.ok) {
+          const health = await res.json();
+          if (health.apiKeyConfigured) {
+            setApiKeyConfigured(true);
+            setSuccessMessage('✓ Connected to Gemini AI via Firebase Secret Manager');
+          }
+        }
+      } catch {
+        // Offline or backend unreachable
+      }
+    }
+    checkBackendKey();
+  }, [setApiKeyConfigured]);
 
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
