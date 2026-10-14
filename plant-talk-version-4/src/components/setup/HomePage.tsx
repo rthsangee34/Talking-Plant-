@@ -56,11 +56,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
   const [showGuide, setShowGuide] = useState<boolean>(false);
 
   // Dynamic Gemini version auto-detection states
-  const [detectedVersion, setDetectedVersion] = useState<string>('gemini-2.5-flash');
+  const [detectedVersion, setDetectedVersion] = useState<string>('gemini-2.0-flash');
   const [availableModels, setAvailableModels] = useState<string[]>([
-    'gemini-2.5-flash',
     'gemini-2.0-flash',
     'gemini-1.5-flash',
+    'gemini-1.5-pro',
   ]);
   const [isDetectingVersion, setIsDetectingVersion] = useState<boolean>(false);
   const [isVersionAutoDetected, setIsVersionAutoDetected] = useState<boolean>(false);
@@ -189,11 +189,24 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
       const validation = await validateGeminiKey(trimmed, activeModel);
 
       if (validation.valid) {
+        if (validation.modelUsed) {
+          activeModel = validation.modelUsed;
+          setDetectedVersion(validation.modelUsed);
+        }
+        if (validation.availableModels && validation.availableModels.length > 0) {
+          setAvailableModels(validation.availableModels);
+        }
+
         // Step 3: Set variables in Firebase
         setValidationStage('Setting variables in Firebase...');
         await setFirebaseVariables({
           geminiVersion: activeModel,
-          availableModels: detectionResult.allModels.length ? detectionResult.allModels : availableModels,
+          availableModels:
+            validation.availableModels && validation.availableModels.length > 0
+              ? validation.availableModels
+              : detectionResult.allModels.length
+              ? detectionResult.allModels
+              : availableModels,
           userId: user?.uid,
           userEmail: user?.email || undefined,
           apiKeyConfigured: true,

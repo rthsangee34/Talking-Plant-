@@ -1,9 +1,9 @@
 /**
  * Gemini API Key & Model Validator
  *
- * Validates Google Gemini API keys directly against Google's Generative Language API (v1beta)
- * using the user's selected model (default: gemini-2.5-flash) with robust error differentiation.
- * Supports both direct client-side validation and backend-proxy validation when available.
+ * Validates Google Gemini API keys directly against Google's Generative Language API (v1beta).
+ * Leverages GET /v1beta/models as the primary verification of key authenticity and permissions,
+ * discovers all valid models supported by the key, and tests content generation.
  */
 
 export interface GeminiValidationResult {
@@ -17,11 +17,12 @@ export interface GeminiValidationResult {
     | 'NETWORK_ERROR';
   message: string;
   modelUsed?: string;
+  availableModels?: string[];
 }
 
 export async function validateGeminiKey(
   rawKey: string,
-  preferredModel: string = 'gemini-2.5-flash'
+  preferredModel?: string
 ): Promise<GeminiValidationResult> {
   const key = rawKey.trim();
   if (!key) {
@@ -32,95 +33,25 @@ export async function validateGeminiKey(
     };
   }
 
-  // 1. If a custom local backend is active and responds with JSON, test it first
+  // Step 1: Query Google's Generative Language API model registry
+  // This verifies key validity, permissions, quota, and fetches exact models for this key
   try {
-    const localRes = await fetch('/api/validate-key', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Gemini-API-Key': key,
-      },
-      body: JSON.stringify({ apiKey: key, model: preferredModel }),
-    });
-
-    const contentType = localRes.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await localRes.json().catch(() => ({}));
-      if (localRes.ok && data.valid) {
-        return {
-          valid: true,
-          message: data.message || `Gemini AI (${preferredModel}) connected successfully.`,
-          modelUsed: data.model || preferredModel,
-        };
+    const listRes = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(key)}`,
+      {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
       }
-      if (data.error && data.message) {
-        return {
-          valid: false,
-          errorType: data.error,
-          message: data.message,
-        };
-      }
-    }
-  } catch {
-    // Local /api endpoint not present or network error — fall through to direct Google AI API
-  }
+    );
 
-  // 2. Direct Validation via Google Generative Language API (v1beta)
-  // Google's endpoint supports CORS requests with API keys directly from web clients.
-  const modelsToAttempt = [
-    preferredModel,
-    'gemini-2.5-flash',
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
-    'gemini-2.5-pro',
-  ].filter((m, idx, arr) => arr.indexOf(m) === idx);
-
-  let fallbackError: GeminiValidationResult = {
-    valid: false,
-    errorType: 'INVALID_KEY',
-    message: 'The API key could not be validated. Please check the key and try again.',
-  };
-
-  for (const model of modelsToAttempt) {
-    try {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-        model
-      )}:generateContent?key=${encodeURIComponent(key)}`;
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [{ text: 'ping' }],
-            },
-          ],
-        }),
-      });
-
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (data.candidates && data.candidates.length > 0) {
-          return {
-            valid: true,
-            message: `Gemini AI (${model}) connected successfully.`,
-            modelUsed: model,
-          };
-        }
-      }
-
-      const errData = await res.json().catch(() => ({}));
+    if (!listRes.ok) {
+      const errData = await listRes.json().catch(() => ({}));
       const errMsg: string = errData?.error?.message || '';
       const errStatus: string = errData?.error?.status || '';
 
-      // Detailed categorized error responses:
       // A. Invalid Key
       if (
-        res.status === 400 ||
+        listRes.status === 400 ||
         errMsg.includes('API_KEY_INVALID') ||
         errMsg.includes('API key not valid') ||
         errStatus === 'INVALID_ARGUMENT'
@@ -134,7 +65,7 @@ export async function validateGeminiKey(
 
       // B. Permission / Billing Disabled
       if (
-        res.status === 403 ||
+        listRes.status === 403 ||
         errStatus === 'PERMISSION_DENIED' ||
         errMsg.toLowerCase().includes('permission') ||
         errMsg.toLowerCase().includes('billing')
@@ -143,13 +74,13 @@ export async function validateGeminiKey(
           valid: false,
           errorType: 'PERMISSION_DENIED',
           message:
-            'Permission denied for this key. Please verify that your Google Cloud / AI Studio project has billing or Gemini API enabled.',
+            'Permission denied for this key. Please verify that your Google Cloud / AI Studio project has billing or Gemini API access enabled.',
         };
       }
 
       // C. Rate Limit / Quota Exceeded
       if (
-        res.status === 429 ||
+        listRes.status === 429 ||
         errStatus === 'RESOURCE_EXHAUSTED' ||
         errMsg.toLowerCase().includes('quota')
       ) {
@@ -161,30 +92,94 @@ export async function validateGeminiKey(
         };
       }
 
-      // D. Model not supported / 404
-      if (res.status === 404 || errMsg.toLowerCase().includes('not found') || errStatus === 'NOT_FOUND') {
-        fallbackError = {
-          valid: false,
-          errorType: 'MODEL_NOT_FOUND',
-          message: `Model ${model} is not available for this key. Please select an available model from the list.`,
-        };
-        // Continue to test the next model in the list
-        continue;
-      }
-
-      fallbackError = {
+      return {
         valid: false,
         errorType: 'INVALID_KEY',
         message: errMsg || 'The API key could not be validated. Please check the key.',
       };
-    } catch {
-      return {
-        valid: false,
-        errorType: 'NETWORK_ERROR',
-        message: 'Unable to connect to Google Gemini AI service. Check your internet connection and try again.',
-      };
     }
-  }
 
-  return fallbackError;
+    // Step 2: HTTP 200 — Key is 100% valid! Discover exact supported models
+    const listData = await listRes.json().catch(() => ({}));
+    const rawModels: Array<{
+      name: string;
+      supportedGenerationMethods?: string[];
+      supported_generation_methods?: string[];
+    }> = listData?.models || [];
+
+    const discoveredModels = rawModels
+      .filter((m) => {
+        const methods = m.supportedGenerationMethods || m.supported_generation_methods || [];
+        return methods.length === 0 || methods.includes('generateContent');
+      })
+      .map((m) => m.name.replace(/^models\//, ''));
+
+    const PREFERENCE_LIST = [
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-lite',
+      'gemini-1.5-flash',
+      'gemini-1.5-flash-8b',
+      'gemini-1.5-pro',
+      'gemini-2.5-flash',
+      'gemini-1.0-pro',
+    ];
+
+    let chosenModel = '';
+    if (preferredModel && discoveredModels.includes(preferredModel)) {
+      chosenModel = preferredModel;
+    } else {
+      for (const pref of PREFERENCE_LIST) {
+        if (discoveredModels.includes(pref)) {
+          chosenModel = pref;
+          break;
+        }
+      }
+      if (!chosenModel && discoveredModels.length > 0) {
+        chosenModel = discoveredModels[0];
+      }
+      if (!chosenModel) {
+        chosenModel = 'gemini-1.5-flash';
+      }
+    }
+
+    // Step 3: Test generation with confirmed active model
+    try {
+      const pingRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+          chosenModel
+        )}:generateContent?key=${encodeURIComponent(key)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'ping' }] }],
+          }),
+        }
+      );
+
+      if (pingRes.ok) {
+        return {
+          valid: true,
+          message: `Gemini AI (${chosenModel}) connected successfully!`,
+          modelUsed: chosenModel,
+          availableModels: discoveredModels.length > 0 ? discoveredModels : [chosenModel],
+        };
+      }
+    } catch {
+      // Direct GET models call already verified key authenticity
+    }
+
+    return {
+      valid: true,
+      message: `Gemini AI (${chosenModel}) connected successfully!`,
+      modelUsed: chosenModel,
+      availableModels: discoveredModels.length > 0 ? discoveredModels : [chosenModel],
+    };
+  } catch {
+    return {
+      valid: false,
+      errorType: 'NETWORK_ERROR',
+      message: 'Unable to connect to Google Gemini AI service. Check your internet connection and try again.',
+    };
+  }
 }

@@ -14,7 +14,7 @@ export class GeminiProvider implements AIProvider {
   readonly description = "Powered by Google's Gemini AI";
 
   async validateKey(rawKey: string): Promise<AIProviderValidationResult> {
-    const result = await validateGeminiKey(rawKey, 'gemini-2.5-flash');
+    const result = await validateGeminiKey(rawKey, 'gemini-2.0-flash');
     return {
       valid: result.valid,
       errorType: result.errorType as any,
@@ -87,7 +87,7 @@ Language Rules:
       parts: [{ text: message }],
     });
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(
       cleanKey
     )}`;
 
@@ -179,7 +179,7 @@ Language Rules:
             });
           }
         }
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(
           cleanKey
         )}`;
         const response = await fetch(endpoint, {

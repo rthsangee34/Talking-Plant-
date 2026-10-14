@@ -153,7 +153,7 @@ export const useSettingsStore = create<SettingsState>()(
         });
       },
 
-      validateAndConnectKey: async (rawKey: string, modelName: string = 'gemini-2.5-flash'): Promise<{ success: boolean; message: string }> => {
+      validateAndConnectKey: async (rawKey: string, modelName: string = 'gemini-2.0-flash'): Promise<{ success: boolean; message: string }> => {
         const key = rawKey.trim();
         if (!key) {
           const userMessage = 'Please enter your API key.';
