@@ -21,6 +21,8 @@ build/
 # IDE and temporary folders
 .kilo/
 .kilocode/
+.firebase/
+**/.firebase/
 .vscode/
 .idea/
 .DS_Store

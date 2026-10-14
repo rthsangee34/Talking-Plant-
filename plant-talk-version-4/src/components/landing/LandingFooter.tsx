@@ -21,11 +21,12 @@ export const LandingFooter: React.FC = () => {
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             className="flex items-center gap-3 cursor-pointer group"
           >
-            <div className="w-10 h-10 rounded-2xl bg-emerald-800/60 border border-emerald-700/60 flex items-center justify-center p-1 group-hover:scale-105 transition-transform">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-800/60 border border-emerald-700/60 flex items-center justify-center p-1 group-hover:scale-105 transition-transform overflow-hidden">
               <img 
-                src="/planttalklogo.png" 
+                src="/planttalklogo-nav.png" 
                 alt="Talking Plant Logo" 
                 className="w-full h-full object-contain"
+                loading="lazy"
               />
             </div>
             <span className="text-xl font-bold tracking-tight text-white font-['Outfit']">

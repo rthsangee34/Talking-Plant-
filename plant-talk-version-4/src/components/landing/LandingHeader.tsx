@@ -28,11 +28,12 @@ export const LandingHeader: React.FC<LandingHeaderProps> = ({ onInstallClick, on
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           className="flex items-center gap-3 cursor-pointer group select-none"
         >
-          <div className="relative w-11 h-11 flex items-center justify-center rounded-2xl bg-emerald-500/10 border border-emerald-500/20 shadow-xs group-hover:scale-105 transition-transform">
+          <div className="relative w-11 h-11 flex items-center justify-center rounded-2xl bg-emerald-500/10 border border-emerald-500/20 shadow-xs group-hover:scale-105 transition-transform overflow-hidden">
             <img 
-              src="/planttalklogo.png" 
+              src="/planttalklogo-nav.png" 
               alt="Talking Plant Logo" 
-              className="w-9 h-9 object-contain"
+              className="w-full h-full object-contain p-1"
+              loading="eager"
             />
           </div>
           <span className="text-2xl sm:text-[26px] font-extrabold tracking-tight text-emerald-950 font-['Outfit']">
