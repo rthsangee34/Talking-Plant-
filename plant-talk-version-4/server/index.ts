@@ -76,16 +76,17 @@ async function startServer() {
 
     try {
       const ai = getGemini(reqApiKey);
+      const testModel = (req.body?.model as string | undefined) || GEMINI_VISION_MODEL;
       // Lightweight test generation to probe the key with minimal token usage
       await ai.models.generateContent({
-        model: GEMINI_VISION_MODEL,
+        model: testModel,
         contents: 'ping',
       });
 
       return res.json({
         valid: true,
         message: 'Gemini AI connected successfully.',
-        model: GEMINI_VISION_MODEL,
+        model: testModel,
       });
     } catch (err: any) {
       const errMsg = err?.message || String(err);

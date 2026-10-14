@@ -35,6 +35,7 @@ import { useSettingsStore } from '../../stores/plant/settings-store';
 import { useAuthStore } from '../../stores/auth-store';
 import { defaultAIProvider } from '../../services/ai/gemini-provider';
 import { detectGeminiModels, DetectedGeminiInfo } from '../../services/ai/gemini-detector';
+import { validateGeminiKey } from '../../services/ai/gemini-validator';
 import { setFirebaseVariables } from '../../services/firebase-variables';
 
 interface HomePageProps {
@@ -185,7 +186,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
       setValidationStage(`Verifying ${activeModel} model access...`);
 
       // Step 2: Validate with AI service
-      const validation = await defaultAIProvider.validateKey(trimmed);
+      const validation = await validateGeminiKey(trimmed, activeModel);
 
       if (validation.valid) {
         // Step 3: Set variables in Firebase
@@ -201,7 +202,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
         // Step 4: Finalize local store connection
         setValidationStage('Starting Plant Companion...');
         setSuccessMessage(`✓ Connected with ${activeModel}! Launching Plant Talk...`);
-        await validateAndConnectKey(trimmed);
+        await validateAndConnectKey(trimmed, activeModel);
 
         setTimeout(() => {
           if (onSuccess) {

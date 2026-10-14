@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { validateGeminiKey } from '../../services/ai/gemini-validator';
 
 export const SESSION_KEY_STORAGE_KEY = 'plant_talk_gemini_api_key';
 export const LOCAL_KEY_STORAGE_KEY = 'plant_talk_saved_api_key';
@@ -44,7 +45,7 @@ interface SettingsState {
   closeDisconnectConfirm: () => void;
   setIsFullscreenVisionOpen: (open: boolean) => void;
   disconnectApiKey: () => void;
-  validateAndConnectKey: (key: string) => Promise<{ success: boolean; message: string }>;
+  validateAndConnectKey: (key: string, modelName?: string) => Promise<{ success: boolean; message: string }>;
 }
 
 const getInitialStoredKey = (): string => {
@@ -152,16 +153,17 @@ export const useSettingsStore = create<SettingsState>()(
         });
       },
 
-      validateAndConnectKey: async (rawKey: string): Promise<{ success: boolean; message: string }> => {
+      validateAndConnectKey: async (rawKey: string, modelName: string = 'gemini-2.5-flash'): Promise<{ success: boolean; message: string }> => {
         const key = rawKey.trim();
         if (!key) {
+          const userMessage = 'Please enter your API key.';
           set({
             apiStatus: 'NO_KEY',
-            apiStatusMessage: 'Please enter your API key.',
+            apiStatusMessage: userMessage,
           });
           return {
             success: false,
-            message: 'Please enter your API key.',
+            message: userMessage,
           };
         }
 
@@ -171,52 +173,39 @@ export const useSettingsStore = create<SettingsState>()(
         });
 
         try {
-          const res = await fetch('/api/validate-key', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Gemini-API-Key': key,
-            },
-            body: JSON.stringify({ apiKey: key }),
-          });
+          const result = await validateGeminiKey(key, modelName);
 
-          const data = await res.json().catch(() => ({}));
-
-          if (res.ok && data.valid) {
+          if (result.valid) {
             get().setApiKey(key);
             set({
               apiStatus: 'AI_READY',
-              apiStatusMessage: 'Gemini AI Ready',
+              apiStatusMessage: `Gemini AI Ready (${result.modelUsed || modelName})`,
               isSetupModalOpen: false,
             });
             return {
               success: true,
-              message: data.message || 'Gemini AI connected successfully.',
+              message: result.message,
             };
           }
 
           let errorStatus: ApiKeyStatus = 'INVALID_KEY';
-          let userMessage = 'The API key could not be validated. Please check the key and try again.';
-
-          if (res.status === 429 || data.error === 'RATE_LIMITED') {
+          if (result.errorType === 'RATE_LIMITED') {
             errorStatus = 'RATE_LIMITED';
-            userMessage = 'The AI service has reached its usage limit. Please check your API account.';
-          } else if (res.status === 503 || data.error === 'NETWORK_ERROR') {
+          } else if (result.errorType === 'NETWORK_ERROR') {
             errorStatus = 'AI_OFFLINE';
-            userMessage = 'Unable to connect to the AI service. Check your internet connection and try again.';
           }
 
           set({
             apiStatus: errorStatus,
-            apiStatusMessage: userMessage,
+            apiStatusMessage: result.message,
           });
 
           return {
             success: false,
-            message: userMessage,
+            message: result.message,
           };
-        } catch (err) {
-          const msg = 'Unable to connect to the AI service. Check your internet connection and try again.';
+        } catch {
+          const msg = 'Unable to connect to Google Gemini AI service. Check your internet connection and try again.';
           set({
             apiStatus: 'AI_OFFLINE',
             apiStatusMessage: msg,

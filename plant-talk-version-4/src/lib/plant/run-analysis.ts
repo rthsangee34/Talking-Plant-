@@ -54,15 +54,81 @@ export async function executePlantAnalysis(
       body: JSON.stringify(payload),
     });
 
-    const data = await res.json().catch(() => ({}));
-    useApiUsageStore.getState().recordApiCall('vision', '/api/analyze', res.ok ? 'success' : 'error');
-    if (!res.ok) {
-      let userMsg = data.message;
+    let data: any = null;
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      data = await res.json().catch(() => null);
+    }
+
+    // If backend is not available (e.g. Firebase Hosting static serving), perform direct client-side analysis
+    if ((!data || !res.ok) && apiKey) {
+      try {
+        const parts: any[] = [
+          {
+            text: `Analyze this plant photo. Return a JSON object with:
+{
+  "totalPlantsDetected": 1,
+  "sceneSummary": "Plant observed in frame.",
+  "plants": [{
+    "role": "main",
+    "commonName": "Houseplant",
+    "scientificName": "Plantae",
+    "visibleCondition": "Healthy green foliage",
+    "recommendation": "Provide bright, indirect sunlight and check soil moisture regularly.",
+    "needsAttention": false,
+    "leaves": { "condition": "healthy", "issues": [] },
+    "damage": { "detected": false },
+    "pests": { "detected": false }
+  }]
+}`,
+          },
+        ];
+
+        const img = payload.imageUrl || (payload.images && payload.images[0]);
+        if (img && img.startsWith('data:image/')) {
+          const m = img.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+          if (m) {
+            parts.push({
+              inline_data: {
+                mime_type: m[1],
+                data: m[2],
+              },
+            });
+          }
+        }
+
+        const directRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              generationConfig: { response_mime_type: 'application/json' },
+              contents: [{ parts }],
+            }),
+          }
+        );
+
+        if (directRes.ok) {
+          const directJson = await directRes.json();
+          const txt = directJson.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (txt) {
+            data = JSON.parse(txt);
+          }
+        }
+      } catch (directErr) {
+        console.warn('Direct vision fallback notice:', directErr);
+      }
+    }
+
+    useApiUsageStore.getState().recordApiCall('vision', '/api/analyze', data ? 'success' : 'error');
+
+    if (!data) {
+      let userMsg = 'Unable to connect to the analysis service.';
       if (res.status === 400) userMsg = 'The captured image could not be analysed.';
       else if (res.status === 401 || res.status === 403) userMsg = 'Gemini API key is invalid or unauthorized.';
       else if (res.status === 429) userMsg = 'Gemini request limit reached. Please wait and retry.';
       else if (res.status === 500 || res.status === 503) userMsg = 'Gemini is temporarily unavailable.';
-      else userMsg = userMsg || 'Unable to connect to the analysis service.';
       throw new Error(userMsg);
     }
 
