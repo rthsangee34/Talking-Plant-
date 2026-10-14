@@ -168,9 +168,6 @@ export default function App() {
         <LandingPage onEnterApp={handleEnterApp} />
       ) : (
         <div className="relative w-full min-h-screen">
-          {/* Subtle authenticated status bar with Landing & Logout actions */}
-          <AuthStatusBar onReturnToLanding={handleReturnToLanding} />
-
           {/* ─────────────────────────────────────────────────────────────────
               PRESERVED EXISTING APPLICATION:
               STATE A: API KEY NOT CONFIGURED / INVALID -> SETUP PAGE
@@ -182,7 +179,10 @@ export default function App() {
               onReturnToLanding={handleReturnToLanding}
             />
           ) : (
-            <PlantTalkDashboard onDisconnect={() => setApiKeyConfigured(false)} />
+            <>
+              <AuthStatusBar onReturnToLanding={handleReturnToLanding} />
+              <PlantTalkDashboard onDisconnect={() => setApiKeyConfigured(false)} />
+            </>
           )}
         </div>
       )}
