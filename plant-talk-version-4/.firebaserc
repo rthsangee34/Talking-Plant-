@@ -1,0 +1,14 @@
+{
+  "projects": {
+    "default": "plant-talk-f0355"
+  },
+  "targets": {
+    "plant-talk-f0355": {
+      "hosting": {
+        "talking-plant-app": [
+          "talking-plant-app"
+        ]
+      }
+    }
+  }
+}

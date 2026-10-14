@@ -1,0 +1,11 @@
+{
+  "name": "PlantTalk",
+  "description": "Conversational AI plant monitoring system with sensor telemetry, vision analysis, memory, and real-time Gemini voice interaction.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

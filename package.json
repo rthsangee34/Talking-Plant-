@@ -1,0 +1,12 @@
+{
+  "name": "plant-talk-workspace",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "npm --prefix plant-talk-version-4 run dev",
+    "build": "npm --prefix plant-talk-version-4 run build",
+    "start": "npm --prefix plant-talk-version-4 run start",
+    "test": "npm --prefix plant-talk-version-4 run test",
+    "lint": "npm --prefix plant-talk-version-4 run lint"
+  }
+}

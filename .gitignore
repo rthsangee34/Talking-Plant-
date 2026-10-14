@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Production builds
+dist/
+**/dist/
+build/
+**/build/
+
+# Environment variables & secrets
+.env*
+**/.env*
+!.env.example
+!**/.env.example
+
+# Logs
+*.log
+**/*.log
+
+# IDE and temporary folders
+.kilo/
+.kilocode/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+plant-talk-version-4/scratch/

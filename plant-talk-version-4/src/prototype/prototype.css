@@ -1,0 +1,185 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-heading: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-script: 'Caveat', cursive;
+  }
+
+  body {
+    font-family: var(--font-body);
+    color: #0f291e;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PREMIUM LIQUID GLASS DESIGN SYSTEM
+   ───────────────────────────────────────────────────────────── */
+
+.liquid-glass {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 
+    0 20px 40px -12px rgba(12, 44, 28, 0.08),
+    0 4px 16px -2px rgba(12, 44, 28, 0.04),
+    inset 0 1.5px 1.5px 0 rgba(255, 255, 255, 0.95),
+    inset 0 -1px 1px 0 rgba(16, 185, 129, 0.06);
+}
+
+.liquid-glass-subtle {
+  background: rgba(255, 255, 255, 0.48);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  box-shadow: 
+    0 10px 25px -8px rgba(12, 44, 28, 0.06),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+.liquid-glass-card {
+  background: rgba(255, 255, 255, 0.58);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: 
+    0 14px 30px -10px rgba(12, 44, 28, 0.07),
+    inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.9);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.liquid-glass-card:hover {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 
+    0 20px 38px -10px rgba(16, 185, 129, 0.14),
+    0 6px 16px -2px rgba(12, 44, 28, 0.05),
+    inset 0 1.5px 2px 0 rgba(255, 255, 255, 1);
+  transform: translateY(-2px);
+}
+
+.liquid-glass-interactive {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 
+    0 4px 14px -3px rgba(12, 44, 28, 0.06),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.liquid-glass-interactive:hover {
+  background: rgba(255, 255, 255, 0.85);
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 
+    0 8px 20px -4px rgba(16, 185, 129, 0.15),
+    inset 0 1px 1.5px 0 rgba(255, 255, 255, 1);
+  transform: translateY(-1.5px);
+}
+
+.liquid-glass-interactive:active {
+  transform: translateY(0.5px) scale(0.98);
+}
+
+/* Active Nav Glow */
+.liquid-glass-active {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(5, 150, 105, 0.1) 100%);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #064e3b;
+  box-shadow: 
+    0 8px 20px -4px rgba(16, 185, 129, 0.2),
+    inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* Primary Liquid Emerald Button */
+.btn-liquid-emerald {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #ffffff;
+  box-shadow: 
+    0 10px 24px -4px rgba(16, 185, 129, 0.45),
+    0 4px 10px -2px rgba(5, 150, 105, 0.25),
+    inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.4);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-liquid-emerald:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  box-shadow: 
+    0 14px 28px -4px rgba(16, 185, 129, 0.55),
+    inset 0 1px 2px 0 rgba(255, 255, 255, 0.5);
+  transform: translateY(-2px) scale(1.01);
+}
+
+.btn-liquid-emerald:active {
+  transform: translateY(0.5px) scale(0.98);
+}
+
+/* Subtle pulse animation for status badges */
+@keyframes softPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(0.92);
+  }
+}
+
+.animate-soft-pulse {
+  animation: softPulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Camera Target Bounding Box Animation */
+@keyframes reticlePulse {
+  0%, 100% {
+    border-color: rgba(16, 185, 129, 0.85);
+    box-shadow: 0 0 18px rgba(16, 185, 129, 0.35);
+  }
+  50% {
+    border-color: rgba(16, 185, 129, 0.4);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.15);
+  }
+}
+
+.animate-target-reticle {
+  animation: reticlePulse 2s ease-in-out infinite;
+}
+
+/* Custom internal scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.25);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.45);
+}
+
+/* Prefers Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
