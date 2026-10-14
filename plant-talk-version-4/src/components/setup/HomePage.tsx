@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Sparkles,
   Eye,
@@ -64,6 +64,22 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
   const [isDetectingVersion, setIsDetectingVersion] = useState<boolean>(false);
   const [isVersionAutoDetected, setIsVersionAutoDetected] = useState<boolean>(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [isDropdownOpen]);
 
   // Interactive feature drawer / modal
   const [interactiveFeature, setInteractiveFeature] = useState<string | null>(null);
@@ -204,7 +220,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
   };
 
   return (
-    <div className="relative min-h-screen w-screen overflow-x-hidden overflow-y-auto select-none flex flex-col justify-between font-sans bg-[#f3f7f4]">
+    <div className="relative min-h-screen w-full overflow-x-hidden overflow-y-auto select-none flex flex-col justify-between font-sans bg-[#f3f7f4]">
       
       {/* ─────────────────────────────────────────────────────────────
           SUNLIT BOTANICAL LEAF BACKGROUND
@@ -220,19 +236,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
       </div>
 
       {/* ─────────────────────────────────────────────────────────────
-          SINGLE UNIFIED TOP NAVIGATION (NO DUPLICATE USER BAR)
+          TOP BAR: USER PROFILE & SIGN OUT ONLY
           ───────────────────────────────────────────────────────────── */}
-      <nav className="relative z-20 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 flex items-center justify-between">
-        <button
-          onClick={onReturnToLanding || (() => window.location.hash = '')}
-          className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/85 hover:bg-white backdrop-blur-md border border-white/90 text-stone-700 hover:text-emerald-900 text-xs font-bold shadow-sm transition-all cursor-pointer active:scale-95"
-        >
-          <ArrowLeft className="w-4 h-4 text-emerald-700" />
-          <span>Back to Landing Page</span>
-        </button>
-
+      <nav className="relative z-20 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-3 sm:pt-4 flex items-center justify-end">
         {user && (
-          <div className="flex items-center gap-2.5 px-4 py-1.5 rounded-full bg-white/85 backdrop-blur-md border border-white/90 shadow-sm text-xs font-bold text-stone-700">
+          <div className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-white/85 backdrop-blur-md border border-white/90 shadow-sm text-xs font-bold text-stone-700">
             {user.photoURL ? (
               <img src={user.photoURL} alt="Avatar" className="w-5 h-5 rounded-full object-cover border border-emerald-400" />
             ) : (
@@ -255,17 +263,17 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
       {/* ─────────────────────────────────────────────────────────────
           MAIN DUAL CARD GRID (MATCHING 2ND REFERENCE DESIGN IMAGE)
           ───────────────────────────────────────────────────────────── */}
-      <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 flex flex-col justify-center">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-stretch">
+      <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-5 flex flex-col justify-center">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-stretch">
           
           {/* ─────────────────────────────────────────────────────────
               LEFT CARD: LIQUID GLASS WITH BRAND & 4 INTERACTIVE PILLS
               ───────────────────────────────────────────────────────── */}
-          <div className="lg:col-span-6 flex flex-col justify-between bg-white/70 backdrop-blur-2xl p-6 sm:p-8 rounded-[32px] border border-white/80 shadow-2xl shadow-emerald-950/10">
+          <div className="lg:col-span-6 flex flex-col justify-between bg-white/70 backdrop-blur-2xl p-5 sm:p-6 lg:p-7 rounded-[28px] border border-white/80 shadow-2xl shadow-emerald-950/10">
             <div>
               {/* Brand Header */}
-              <div className="flex items-center gap-4">
-                <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-2xl overflow-hidden shadow-md shrink-0">
+              <div className="flex items-center gap-3.5">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl overflow-hidden shadow-md shrink-0">
                   <img
                     src="/plant-sprout-icon.png"
                     alt="Plant Talk Sprout Logo"
@@ -274,121 +282,121 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
                 </div>
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-emerald-950 font-['Outfit']">
+                    <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-emerald-950 font-['Outfit']">
                       Plant Talk
                     </h1>
-                    <span className="text-emerald-600 text-2xl">🍃</span>
+                    <span className="text-emerald-600 text-xl sm:text-2xl">🍃</span>
                   </div>
-                  <p className="text-emerald-700 font-bold text-sm sm:text-base tracking-tight mt-0.5">
+                  <p className="text-emerald-700 font-bold text-xs sm:text-sm tracking-tight mt-0.5">
                     Your Plant&apos;s AI Companion
                   </p>
                 </div>
               </div>
 
               {/* Explanatory description */}
-              <p className="text-stone-700 text-sm leading-relaxed mt-4 mb-6 font-medium">
+              <p className="text-stone-700 text-xs sm:text-sm leading-relaxed mt-2.5 mb-3.5 font-medium">
                 Connect your Google Gemini AI API key to unlock real-time botanical intelligence, voice dialogue, and continuous telemetry monitoring.
               </p>
 
               {/* Key Features Header with Cursive Calligraphy */}
-              <div className="flex items-center justify-between mb-3 select-none">
-                <div className="flex items-center gap-2 text-stone-900 font-extrabold text-base tracking-tight">
+              <div className="flex items-center justify-between mb-2.5 select-none">
+                <div className="flex items-center gap-1.5 text-stone-900 font-extrabold text-sm sm:text-base tracking-tight">
                   <Leaf className="w-4 h-4 text-emerald-700" />
                   <span>Key Features</span>
                 </div>
-                <span className="font-['Caveat',cursive] text-emerald-800 font-bold text-lg sm:text-xl tracking-wide">
+                <span className="font-['Caveat',cursive] text-emerald-800 font-bold text-base sm:text-lg tracking-wide">
                   Smarter Plants, Healthier Tomorrow 🍃
                 </span>
               </div>
 
               {/* 4 Interactive Feature Cards */}
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {/* 1. AI Analysis */}
                 <button
                   type="button"
                   onClick={() => setInteractiveFeature(interactiveFeature === 'ai' ? null : 'ai')}
-                  className="w-full flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-white hover:bg-emerald-50/50 border border-stone-200/60 hover:border-emerald-300 shadow-sm hover:shadow-md transition-all text-left cursor-pointer group active:scale-[0.99]"
+                  className="w-full flex items-center justify-between p-2.5 sm:p-3 rounded-xl bg-white hover:bg-emerald-50/50 border border-stone-200/60 hover:border-emerald-300 shadow-xs hover:shadow-sm transition-all text-left cursor-pointer group active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-11 h-11 rounded-full bg-[#16a34a] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
-                      <Leaf className="w-5 h-5 fill-white/20" />
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#16a34a] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                      <Leaf className="w-4 h-4 sm:w-5 sm:h-5 fill-white/20" />
                     </div>
                     <div className="min-w-0">
-                      <h2 className="text-sm font-bold text-stone-900 tracking-tight">
+                      <h2 className="text-xs sm:text-sm font-bold text-stone-900 tracking-tight">
                         AI-Powered Plant Analysis
                       </h2>
-                      <p className="text-xs text-stone-600 font-medium truncate">
+                      <p className="text-[11px] sm:text-xs text-stone-600 font-medium truncate">
                         Get smart biological insights about your plant
                       </p>
                     </div>
                   </div>
-                  <ChevronRight className="w-5 h-5 text-stone-400 group-hover:text-emerald-700 transition-colors shrink-0 ml-2" />
+                  <ChevronRight className="w-4 h-4 text-stone-400 group-hover:text-emerald-700 transition-colors shrink-0 ml-2" />
                 </button>
 
                 {/* 2. Voice Assistant */}
                 <button
                   type="button"
                   onClick={() => setInteractiveFeature(interactiveFeature === 'voice' ? null : 'voice')}
-                  className="w-full flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-white hover:bg-emerald-50/50 border border-stone-200/60 hover:border-emerald-300 shadow-sm hover:shadow-md transition-all text-left cursor-pointer group active:scale-[0.99]"
+                  className="w-full flex items-center justify-between p-2.5 sm:p-3 rounded-xl bg-white hover:bg-emerald-50/50 border border-stone-200/60 hover:border-emerald-300 shadow-xs hover:shadow-sm transition-all text-left cursor-pointer group active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-11 h-11 rounded-full bg-[#0284c7] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
-                      <Mic className="w-5 h-5" />
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#0284c7] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                      <Mic className="w-4 h-4 sm:w-5 sm:h-5" />
                     </div>
                     <div className="min-w-0">
-                      <h2 className="text-sm font-bold text-stone-900 tracking-tight">
+                      <h2 className="text-xs sm:text-sm font-bold text-stone-900 tracking-tight">
                         Voice Plant Assistant
                       </h2>
-                      <p className="text-xs text-stone-600 font-medium truncate">
+                      <p className="text-[11px] sm:text-xs text-stone-600 font-medium truncate">
                         Talk to your plant, hear instant spoken replies
                       </p>
                     </div>
                   </div>
-                  <ChevronRight className="w-5 h-5 text-stone-400 group-hover:text-emerald-700 transition-colors shrink-0 ml-2" />
+                  <ChevronRight className="w-4 h-4 text-stone-400 group-hover:text-emerald-700 transition-colors shrink-0 ml-2" />
                 </button>
 
                 {/* 3. Sensor Telemetry */}
                 <button
                   type="button"
                   onClick={() => setInteractiveFeature(interactiveFeature === 'sensors' ? null : 'sensors')}
-                  className="w-full flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-white hover:bg-emerald-50/50 border border-stone-200/60 hover:border-emerald-300 shadow-sm hover:shadow-md transition-all text-left cursor-pointer group active:scale-[0.99]"
+                  className="w-full flex items-center justify-between p-2.5 sm:p-3 rounded-xl bg-white hover:bg-emerald-50/50 border border-stone-200/60 hover:border-emerald-300 shadow-xs hover:shadow-sm transition-all text-left cursor-pointer group active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-11 h-11 rounded-full bg-[#9333ea] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
-                      <Radio className="w-5 h-5" />
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#9333ea] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                      <Radio className="w-4 h-4 sm:w-5 sm:h-5" />
                     </div>
                     <div className="min-w-0">
-                      <h2 className="text-sm font-bold text-stone-900 tracking-tight">
+                      <h2 className="text-xs sm:text-sm font-bold text-stone-900 tracking-tight">
                         Sensor-aware Telemetry
                       </h2>
-                      <p className="text-xs text-stone-600 font-medium truncate">
+                      <p className="text-[11px] sm:text-xs text-stone-600 font-medium truncate">
                         Real environmental data (Moisture, Light, Temp)
                       </p>
                     </div>
                   </div>
-                  <ChevronRight className="w-5 h-5 text-stone-400 group-hover:text-emerald-700 transition-colors shrink-0 ml-2" />
+                  <ChevronRight className="w-4 h-4 text-stone-400 group-hover:text-emerald-700 transition-colors shrink-0 ml-2" />
                 </button>
 
                 {/* 4. Computer Vision */}
                 <button
                   type="button"
                   onClick={() => setInteractiveFeature(interactiveFeature === 'camera' ? null : 'camera')}
-                  className="w-full flex items-center justify-between p-3.5 sm:p-4 rounded-2xl bg-white hover:bg-emerald-50/50 border border-stone-200/60 hover:border-emerald-300 shadow-sm hover:shadow-md transition-all text-left cursor-pointer group active:scale-[0.99]"
+                  className="w-full flex items-center justify-between p-2.5 sm:p-3 rounded-xl bg-white hover:bg-emerald-50/50 border border-stone-200/60 hover:border-emerald-300 shadow-xs hover:shadow-sm transition-all text-left cursor-pointer group active:scale-[0.99]"
                 >
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-11 h-11 rounded-full bg-[#f59e0b] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
-                      <Camera className="w-5 h-5" />
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-[#f59e0b] text-white flex items-center justify-center shrink-0 shadow-xs group-hover:scale-105 transition-transform">
+                      <Camera className="w-4 h-4 sm:w-5 sm:h-5" />
                     </div>
                     <div className="min-w-0">
-                      <h2 className="text-sm font-bold text-stone-900 tracking-tight">
+                      <h2 className="text-xs sm:text-sm font-bold text-stone-900 tracking-tight">
                         Computer Vision Inspection
                       </h2>
-                      <p className="text-xs text-stone-600 font-medium truncate">
+                      <p className="text-[11px] sm:text-xs text-stone-600 font-medium truncate">
                         Automatic multi-leaf and touch guard tracking
                       </p>
                     </div>
                   </div>
-                  <ChevronRight className="w-5 h-5 text-stone-400 group-hover:text-emerald-700 transition-colors shrink-0 ml-2" />
+                  <ChevronRight className="w-4 h-4 text-stone-400 group-hover:text-emerald-700 transition-colors shrink-0 ml-2" />
                 </button>
               </div>
 
@@ -476,26 +484,26 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
           {/* ─────────────────────────────────────────────────────────
               RIGHT CARD: GREEN ROBOT HEADER BANNER & AI CONFIG FORM
               ───────────────────────────────────────────────────────── */}
-          <div className="lg:col-span-6 flex flex-col justify-between bg-white/95 backdrop-blur-2xl rounded-[32px] p-5 sm:p-7 shadow-2xl border border-white/90 text-stone-900">
+          <div className="lg:col-span-6 flex flex-col justify-between bg-white/95 backdrop-blur-2xl rounded-[28px] p-5 sm:p-6 shadow-2xl border border-white/90 text-stone-900">
             <div>
               {/* Green Header Banner Matching Reference Design Image */}
-              <div className="relative rounded-2xl overflow-hidden mb-6 shadow-md bg-gradient-to-r from-[#16a34a] via-[#15803d] to-[#047857] text-white p-5 sm:p-6 flex items-center justify-between gap-4">
+              <div className="relative rounded-2xl overflow-hidden mb-3.5 shadow-md bg-gradient-to-r from-[#16a34a] via-[#15803d] to-[#047857] text-white p-4 sm:p-4.5 flex items-center justify-between gap-3">
                 <div className="relative z-10 flex-1 min-w-0 pr-2">
-                  <div className="flex items-center gap-2.5 mb-1.5">
-                    <div className="w-9 h-9 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
-                      <Cpu className="w-5 h-5" />
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className="w-8 h-8 rounded-xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white shrink-0">
+                      <Cpu className="w-4 h-4" />
                     </div>
-                    <h3 className="text-lg sm:text-xl font-extrabold tracking-tight text-white font-['Outfit'] truncate">
+                    <h3 className="text-base sm:text-lg font-extrabold tracking-tight text-white font-['Outfit'] truncate">
                       Configure Your AI Connection
                     </h3>
                   </div>
-                  <p className="text-emerald-100 text-xs sm:text-[13px] leading-relaxed font-normal">
+                  <p className="text-emerald-100 text-[11px] sm:text-xs leading-relaxed font-normal">
                     Enter your Gemini API key to enable AI-powered features and start your plant journey.
                   </p>
                 </div>
 
                 {/* Cute Smiling Plant Robot with Speech Bubble */}
-                <div className="relative shrink-0 w-28 sm:w-32 h-auto flex items-center justify-center">
+                <div className="relative shrink-0 w-22 sm:w-26 h-auto flex items-center justify-center">
                   <img
                     src="/plant-bot-companion.png"
                     alt="Plant Friend Companion Robot"
@@ -505,11 +513,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
               </div>
 
               {/* Form Controls */}
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSubmit} className="space-y-3">
                 
                 {/* 1. AI Provider Selector */}
                 <div>
-                  <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center justify-between mb-1">
                     <label className="flex items-center gap-1.5 text-xs font-bold text-stone-800 tracking-wider uppercase">
                       <Sparkles className="w-3.5 h-3.5 text-emerald-700" />
                       <span>AI Provider</span>
@@ -524,13 +532,13 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
                   </div>
 
                   {/* Dropdown Container */}
-                  <div className="relative">
+                  <div className="relative" ref={dropdownRef}>
                     <button
                       type="button"
                       onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                      className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-stone-300/90 bg-white shadow-xs text-sm font-semibold text-stone-800 hover:border-emerald-500 transition-colors cursor-pointer text-left"
+                      className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-stone-300/90 bg-white shadow-xs text-xs sm:text-sm font-semibold text-stone-800 hover:border-emerald-500 transition-colors cursor-pointer text-left"
                     >
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
                         {/* Google Logo Icon */}
                         <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                           <path
@@ -550,16 +558,17 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
                             d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                           />
                         </svg>
-                        <span>Google Gemini ({detectedVersion})</span>
+                        <span className="truncate">Google Gemini ({detectedVersion})</span>
                       </div>
-                      <ChevronDown className="w-4 h-4 text-stone-400" />
+                      <ChevronDown className={`w-4 h-4 text-stone-400 transition-transform ${isDropdownOpen ? 'rotate-180 text-emerald-600' : ''}`} />
                     </button>
 
-                    {/* Dropdown Options */}
+                    {/* Dropdown Options - Scrollable Model List */}
                     {isDropdownOpen && (
-                      <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-white rounded-xl shadow-xl border border-stone-200 py-1.5 text-xs animate-in fade-in duration-150">
-                        <div className="px-3 py-1 font-bold text-stone-400 uppercase text-[10px]">
-                          Available Multimodal Models
+                      <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-white rounded-xl shadow-xl border border-stone-200 py-1 text-xs animate-in fade-in duration-150 max-h-48 sm:max-h-52 overflow-y-auto divide-y divide-stone-100 overscroll-contain">
+                        <div className="sticky top-0 bg-white/95 backdrop-blur-xs px-3 py-1.5 font-bold text-stone-400 uppercase text-[10px] z-10 border-b border-stone-100 flex items-center justify-between">
+                          <span>Available Multimodal Models</span>
+                          <span className="text-[9px] bg-stone-100 text-stone-600 px-1.5 py-0.5 rounded-full font-semibold">{availableModels.length} models</span>
                         </div>
                         {availableModels.map((m) => (
                           <button
@@ -570,11 +579,11 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
                               setIsDropdownOpen(false);
                             }}
                             className={`w-full text-left px-3.5 py-2 flex items-center justify-between hover:bg-emerald-50 transition-colors cursor-pointer ${
-                              detectedVersion === m ? 'font-bold text-emerald-800 bg-emerald-50/60' : 'text-stone-700'
+                              detectedVersion === m ? 'font-bold text-emerald-800 bg-emerald-50/70' : 'text-stone-700'
                             }`}
                           >
-                            <span>Google Gemini ({m})</span>
-                            {detectedVersion === m && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />}
+                            <span className="truncate pr-2">Google Gemini ({m})</span>
+                            {detectedVersion === m && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />}
                           </button>
                         ))}
                       </div>
@@ -708,7 +717,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
                 <button
                   type="submit"
                   disabled={isValidating}
-                  className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-[#16a34a] to-[#059669] hover:from-[#15803d] hover:to-[#047857] text-white font-bold text-sm tracking-wide shadow-lg shadow-emerald-900/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer active:scale-98 disabled:opacity-70 disabled:cursor-not-allowed"
+                  className="w-full py-3 px-5 rounded-xl bg-gradient-to-r from-[#16a34a] to-[#059669] hover:from-[#15803d] hover:to-[#047857] text-white font-bold text-sm tracking-wide shadow-md shadow-emerald-900/20 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98 disabled:opacity-70 disabled:cursor-not-allowed"
                 >
                   {isValidating ? (
                     <>
@@ -729,7 +738,7 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
             {/* ─────────────────────────────────────────────────────────
                 BOTTOM 3 GUARANTEE BADGES (MATCHING 2ND REFERENCE IMAGE)
                 ───────────────────────────────────────────────────────── */}
-            <div className="pt-5 mt-4 border-t border-stone-200/60 grid grid-cols-3 gap-2 text-left">
+            <div className="pt-3.5 mt-3 border-t border-stone-200/60 grid grid-cols-3 gap-2 text-left">
               
               <div className="flex items-start gap-2">
                 <Shield className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
