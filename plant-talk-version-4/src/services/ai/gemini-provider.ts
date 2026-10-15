@@ -88,7 +88,10 @@ Language Rules:
       parts: [{ text: message }],
     });
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${getActiveGeminiModel()}:generateContent?key=${encodeURIComponent(
+    const activeModel = getActiveGeminiModel();
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+      activeModel
+    )}:generateContent?key=${encodeURIComponent(
       cleanKey
     )}`;
 
@@ -180,7 +183,10 @@ Language Rules:
             });
           }
         }
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${getActiveGeminiModel()}:generateContent?key=${encodeURIComponent(
+        const analysisModel = getActiveGeminiModel();
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+          analysisModel
+        )}:generateContent?key=${encodeURIComponent(
           cleanKey
         )}`;
         const response = await fetch(endpoint, {

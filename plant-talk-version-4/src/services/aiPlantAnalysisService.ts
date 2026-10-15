@@ -117,7 +117,8 @@ Return ONLY JSON:
   "tamil": "..."
 }`;
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getActiveGeminiModel()}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+      const modelToUse = getActiveGeminiModel();
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelToUse)}:generateContent?key=${apiKey}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

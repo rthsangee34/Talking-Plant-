@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { validateGeminiKey } from '../../services/ai/gemini-validator';
+import { getActiveGeminiModel } from '../../services/ai/gemini-models';
 
 export const SESSION_KEY_STORAGE_KEY = 'plant_talk_gemini_api_key';
 export const LOCAL_KEY_STORAGE_KEY = 'plant_talk_saved_api_key';
@@ -153,7 +154,8 @@ export const useSettingsStore = create<SettingsState>()(
         });
       },
 
-      validateAndConnectKey: async (rawKey: string, modelName: string = 'gemini-flash-latest'): Promise<{ success: boolean; message: string }> => {
+      validateAndConnectKey: async (rawKey: string, modelName?: string): Promise<{ success: boolean; message: string }> => {
+        const activeModel = modelName || getActiveGeminiModel();
         const key = rawKey.trim();
         if (!key) {
           const userMessage = 'Please enter your API key.';
@@ -173,13 +175,13 @@ export const useSettingsStore = create<SettingsState>()(
         });
 
         try {
-          const result = await validateGeminiKey(key, modelName);
+          const result = await validateGeminiKey(key, activeModel);
 
           if (result.valid) {
             get().setApiKey(key);
             set({
               apiStatus: 'AI_READY',
-              apiStatusMessage: `Gemini AI Ready (${result.modelUsed || modelName})`,
+              apiStatusMessage: `Gemini AI Ready (${result.modelUsed || activeModel})`,
               isSetupModalOpen: false,
             });
             return {
