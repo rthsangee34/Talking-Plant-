@@ -7,6 +7,7 @@ import {
   PlantSensorContext,
 } from './ai-provider';
 import { validateGeminiKey } from './gemini-validator';
+import { getActiveGeminiModel } from './gemini-models';
 
 export class GeminiProvider implements AIProvider {
   readonly id = 'gemini';
@@ -14,7 +15,7 @@ export class GeminiProvider implements AIProvider {
   readonly description = "Powered by Google's Gemini AI";
 
   async validateKey(rawKey: string): Promise<AIProviderValidationResult> {
-    const result = await validateGeminiKey(rawKey, 'gemini-2.0-flash');
+    const result = await validateGeminiKey(rawKey, getActiveGeminiModel());
     return {
       valid: result.valid,
       errorType: result.errorType as any,
@@ -87,7 +88,7 @@ Language Rules:
       parts: [{ text: message }],
     });
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${getActiveGeminiModel()}:generateContent?key=${encodeURIComponent(
       cleanKey
     )}`;
 
@@ -179,7 +180,7 @@ Language Rules:
             });
           }
         }
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${getActiveGeminiModel()}:generateContent?key=${encodeURIComponent(
           cleanKey
         )}`;
         const response = await fetch(endpoint, {

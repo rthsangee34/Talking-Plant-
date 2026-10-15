@@ -9,6 +9,8 @@
  * - Asynchronous Gemini enrichment when API key is available
  */
 
+import { getActiveGeminiModel } from './ai/gemini-models';
+
 export interface HealthExplanationRequest {
   plantName?: string;
   species?: string;
@@ -115,7 +117,7 @@ Return ONLY JSON:
   "tamil": "..."
 }`;
 
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${getActiveGeminiModel()}:generateContent?key=${encodeURIComponent(apiKey)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -10,23 +10,17 @@ export interface DetectedGeminiInfo {
   message?: string;
 }
 
-const PREFERRED_MODEL_ORDER = [
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-flash',
-  'gemini-1.5-flash-8b',
-  'gemini-1.5-pro',
-  'gemini-2.5-flash',
-  'gemini-1.0-pro',
-];
+import { DEFAULT_GEMINI_MODEL, PREFERRED_GEMINI_MODELS, rankModels } from './gemini-models';
+
+const FALLBACK_MODELS: string[] = [...PREFERRED_GEMINI_MODELS.slice(0, 4)];
 
 export async function detectGeminiModels(apiKey: string): Promise<DetectedGeminiInfo> {
   const trimmed = apiKey.trim();
   if (!trimmed) {
     return {
       valid: false,
-      selectedModel: 'gemini-2.0-flash',
-      allModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+      selectedModel: DEFAULT_GEMINI_MODEL,
+      allModels: FALLBACK_MODELS,
       message: 'API key is required.',
     };
   }
@@ -47,8 +41,8 @@ export async function detectGeminiModels(apiKey: string): Promise<DetectedGemini
         `Google AI API rejected key (Status ${response.status}). Please check your key.`;
       return {
         valid: false,
-        selectedModel: 'gemini-2.0-flash',
-        allModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+        selectedModel: DEFAULT_GEMINI_MODEL,
+        allModels: FALLBACK_MODELS,
         message: errorMsg,
       };
     }
@@ -61,35 +55,29 @@ export async function detectGeminiModels(apiKey: string): Promise<DetectedGemini
       .filter((m) => m.supportedGenerationMethods?.includes('generateContent'))
       .map((m) => m.name.replace(/^models\//, ''));
 
-    if (contentModels.length === 0) {
+    const ranked = rankModels(contentModels);
+
+    if (ranked.length === 0) {
       return {
         valid: true,
-        selectedModel: 'gemini-2.0-flash',
-        allModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+        selectedModel: DEFAULT_GEMINI_MODEL,
+        allModels: FALLBACK_MODELS,
         message: 'Key validated successfully (using default models).',
       };
     }
 
-    // Pick top preferred model from the discovered list
-    let selected = contentModels[0];
-    for (const preferred of PREFERRED_MODEL_ORDER) {
-      if (contentModels.includes(preferred)) {
-        selected = preferred;
-        break;
-      }
-    }
-
+    // NOTE: this is only the *preferred* model; gemini-validator confirms it actually generates.
     return {
       valid: true,
-      selectedModel: selected,
-      allModels: contentModels,
+      selectedModel: ranked[0],
+      allModels: ranked,
     };
   } catch (err: unknown) {
     console.warn('Network error during Gemini model detection:', err);
     return {
       valid: false,
-      selectedModel: 'gemini-2.0-flash',
-      allModels: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+      selectedModel: DEFAULT_GEMINI_MODEL,
+      allModels: FALLBACK_MODELS,
       message: 'Network error connecting to Google AI. Please check your connection.',
     };
   }

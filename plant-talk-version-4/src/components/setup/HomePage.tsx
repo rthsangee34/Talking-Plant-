@@ -37,6 +37,7 @@ import { defaultAIProvider } from '../../services/ai/gemini-provider';
 import { detectGeminiModels, DetectedGeminiInfo } from '../../services/ai/gemini-detector';
 import { validateGeminiKey } from '../../services/ai/gemini-validator';
 import { setFirebaseVariables } from '../../services/firebase-variables';
+import { DEFAULT_GEMINI_MODEL, PREFERRED_GEMINI_MODELS, setActiveGeminiModel } from '../../services/ai/gemini-models';
 
 interface HomePageProps {
   onSuccess?: () => void;
@@ -44,7 +45,7 @@ interface HomePageProps {
 }
 
 export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding }) => {
-  const { apiKey, setApiKeyConfigured, setApiStatus, validateAndConnectKey } = useSettingsStore();
+  const { apiKey, setApiKey, setApiStatus, setGeminiVisionModel } = useSettingsStore();
   const { user, signOut } = useAuthStore();
 
   const [inputKey, setInputKey] = useState<string>(apiKey || '');
@@ -56,12 +57,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
   const [showGuide, setShowGuide] = useState<boolean>(false);
 
   // Dynamic Gemini version auto-detection states
-  const [detectedVersion, setDetectedVersion] = useState<string>('gemini-2.0-flash');
-  const [availableModels, setAvailableModels] = useState<string[]>([
-    'gemini-2.0-flash',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro',
-  ]);
+  const [detectedVersion, setDetectedVersion] = useState<string>(DEFAULT_GEMINI_MODEL);
+  const [availableModels, setAvailableModels] = useState<string[]>([...PREFERRED_GEMINI_MODELS.slice(0, 4)]);
   const [isDetectingVersion, setIsDetectingVersion] = useState<boolean>(false);
   const [isVersionAutoDetected, setIsVersionAutoDetected] = useState<boolean>(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
@@ -197,25 +194,33 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
           setAvailableModels(validation.availableModels);
         }
 
-        // Step 3: Set variables in Firebase
-        setValidationStage('Setting variables in Firebase...');
-        await setFirebaseVariables({
+        const finalModels =
+          validation.availableModels && validation.availableModels.length > 0
+            ? validation.availableModels
+            : detectionResult.allModels.length
+            ? detectionResult.allModels
+            : availableModels;
+
+        // Step 3: Commit the verified key + model locally (no second validation round-trip)
+        setValidationStage('Starting Plant Companion...');
+        setActiveGeminiModel(activeModel);
+        setGeminiVisionModel(activeModel);
+        setApiKey(trimmed);
+        setApiStatus('AI_READY', `Gemini AI Ready (${activeModel})`);
+        setSuccessMessage(`✓ Connected with ${activeModel}! Launching Plant Talk...`);
+
+        // Step 4: Sync to Firebase in the BACKGROUND. Firestore writes can hang
+        // indefinitely (API disabled / no database / offline), so they must never
+        // block the user from entering the app.
+        void setFirebaseVariables({
           geminiVersion: activeModel,
-          availableModels:
-            validation.availableModels && validation.availableModels.length > 0
-              ? validation.availableModels
-              : detectionResult.allModels.length
-              ? detectionResult.allModels
-              : availableModels,
+          availableModels: finalModels,
           userId: user?.uid,
           userEmail: user?.email || undefined,
           apiKeyConfigured: true,
+        }).then((res) => {
+          if (!res.success) console.warn('[PlantTalk] Firebase sync skipped:', res.message);
         });
-
-        // Step 4: Finalize local store connection
-        setValidationStage('Starting Plant Companion...');
-        setSuccessMessage(`✓ Connected with ${activeModel}! Launching Plant Talk...`);
-        await validateAndConnectKey(trimmed, activeModel);
 
         setTimeout(() => {
           if (onSuccess) {
@@ -225,7 +230,8 @@ export const HomePage: React.FC<HomePageProps> = ({ onSuccess, onReturnToLanding
       } else {
         setErrorMessage(validation.message || 'The API key could not be validated. Please check the key.');
       }
-    } catch {
+    } catch (err) {
+      console.error('[PlantTalk] API key setup failed:', err);
       setErrorMessage('Unable to connect to the AI service. Please check your internet connection.');
     } finally {
       setIsValidating(false);

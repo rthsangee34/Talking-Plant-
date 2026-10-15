@@ -3,6 +3,7 @@ import { useCameraStore } from '../../stores/plant/camera-store';
 import { useExperienceStore } from '../../stores/plant/experience-store';
 import { useSettingsStore } from '../../stores/plant/settings-store';
 import { useApiUsageStore } from '../../stores/plant/api-usage-store';
+import { getActiveGeminiModel } from '../../services/ai/gemini-models';
 
 const FRONTEND_ERROR_MESSAGES: Record<string, string> = {
   CAMERA_NOT_READY: 'The live view is not ready yet. Please wait a moment.',
@@ -98,7 +99,7 @@ export async function executePlantAnalysis(
         }
 
         const directRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${getActiveGeminiModel()}:generateContent?key=${encodeURIComponent(apiKey)}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

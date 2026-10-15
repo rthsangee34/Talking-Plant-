@@ -6,6 +6,8 @@
  * discovers all valid models supported by the key, and tests content generation.
  */
 
+import { DEFAULT_GEMINI_MODEL, isChatCapableModel, rankModels } from './gemini-models';
+
 export interface GeminiValidationResult {
   valid: boolean;
   errorType?:
@@ -114,66 +116,75 @@ export async function validateGeminiKey(
       })
       .map((m) => m.name.replace(/^models\//, ''));
 
-    const PREFERENCE_LIST = [
-      'gemini-2.0-flash',
-      'gemini-2.0-flash-lite',
-      'gemini-1.5-flash',
-      'gemini-1.5-flash-8b',
-      'gemini-1.5-pro',
-      'gemini-2.5-flash',
-      'gemini-1.0-pro',
-    ];
+    // Being LISTED does not mean a model is usable (retired models still list
+    // but return 404 on generateContent). Probe candidates until one answers.
+    const candidates = rankModels(discoveredModels, preferredModel);
+    if (candidates.length === 0) candidates.push(DEFAULT_GEMINI_MODEL);
 
-    let chosenModel = '';
-    if (preferredModel && discoveredModels.includes(preferredModel)) {
-      chosenModel = preferredModel;
-    } else {
-      for (const pref of PREFERENCE_LIST) {
-        if (discoveredModels.includes(pref)) {
-          chosenModel = pref;
-          break;
+    const chatModels = discoveredModels.filter(isChatCapableModel);
+    let lastStatus = 0;
+    let networkFailures = 0;
+
+    // Step 3: Test generation, falling through retired / unavailable models
+    for (const candidate of candidates.slice(0, 6)) {
+      try {
+        const pingRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+            candidate
+          )}:generateContent?key=${encodeURIComponent(key)}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: 'ping' }] }],
+            }),
+          }
+        );
+
+        if (pingRes.ok) {
+          return {
+            valid: true,
+            message: `Gemini AI (${candidate}) connected successfully!`,
+            modelUsed: candidate,
+            availableModels: chatModels.length > 0 ? rankModels(chatModels, candidate) : [candidate],
+          };
         }
-      }
-      if (!chosenModel && discoveredModels.length > 0) {
-        chosenModel = discoveredModels[0];
-      }
-      if (!chosenModel) {
-        chosenModel = 'gemini-1.5-flash';
+
+        lastStatus = pingRes.status;
+        if (pingRes.status === 429) {
+          return {
+            valid: false,
+            errorType: 'RATE_LIMITED',
+            message:
+              'Gemini request quota exceeded. Please check your usage limits or billing in Google AI Studio.',
+          };
+        }
+        if (pingRes.status === 401 || pingRes.status === 403) {
+          return {
+            valid: false,
+            errorType: 'PERMISSION_DENIED',
+            message: 'This key is not allowed to generate content. Check the key restrictions in Google AI Studio.',
+          };
+        }
+        // 404 / 400 / 5xx -> try the next model
+      } catch {
+        networkFailures++;
       }
     }
 
-    // Step 3: Test generation with confirmed active model
-    try {
-      const pingRes = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
-          chosenModel
-        )}:generateContent?key=${encodeURIComponent(key)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: 'ping' }] }],
-          }),
-        }
-      );
-
-      if (pingRes.ok) {
-        return {
-          valid: true,
-          message: `Gemini AI (${chosenModel}) connected successfully!`,
-          modelUsed: chosenModel,
-          availableModels: discoveredModels.length > 0 ? discoveredModels : [chosenModel],
-        };
-      }
-    } catch {
-      // Direct GET models call already verified key authenticity
+    if (networkFailures > 0 && lastStatus === 0) {
+      return {
+        valid: false,
+        errorType: 'NETWORK_ERROR',
+        message: 'Unable to reach Google Gemini AI service. Check your internet connection and try again.',
+      };
     }
 
     return {
-      valid: true,
-      message: `Gemini AI (${chosenModel}) connected successfully!`,
-      modelUsed: chosenModel,
-      availableModels: discoveredModels.length > 0 ? discoveredModels : [chosenModel],
+      valid: false,
+      errorType: 'MODEL_NOT_FOUND',
+      message:
+        'Your API key is valid, but none of the available Gemini models accepted a request. Please try again later.',
     };
   } catch {
     return {
